@@ -7,7 +7,7 @@
 Either run the docker image available under
 
 ```bash
-
+docker run -ti -v $(pwd):/root/shared -w /root/shared --rm ghcr.io/mhornkjol/mri2fem-ii-chapter-3-code
 ```
 
 or build it locally with
@@ -19,14 +19,14 @@ docker build -t mri2fem-chapter3 -f ./docker/Dockerfile .
 The image can be started with
 
 ```bash
-docker run -ti -v $(pwd):/root/shared -w /root/shared --rm insert path here
+docker run -ti -v $(pwd):/root/shared -w /root/shared --rm  mri2fem-chapter3
 ```
 
 ### Conda
 
 ```bash
 conda env create -f environment.yml
-conda activate
+conda activate mri2fem-chapter3
 
 ```
 
