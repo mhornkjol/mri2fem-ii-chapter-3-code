@@ -40,6 +40,7 @@ To generate the meshes call
 
 ```bash
 python3 create_mesh.py
+python3 convert_mesh.py
 ```
 
 and to run the Stokes solver call
