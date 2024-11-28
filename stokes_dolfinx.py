@@ -149,7 +149,8 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
         ufl.div(v) * p * dx - q * ufl.div(u) * dx
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
-
+    P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p))
+    P.assemble()
     L = -g_source * q * dx(6)
 
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
@@ -167,6 +168,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     opts["mat_mumps_icntl_24"] = 1
     # Option to support solving a singular matrix (pressure nullspace)
     opts["mat_mumps_icntl_25"] = 0
+    problem.solver.setOperators(problem.A, P)
     problem.A.setFromOptions()
 
     wh = problem.solve()
