@@ -114,7 +114,7 @@ def solve_stokes(domain, domain_marker, interface_marker):
     no_slip = dolfinx.fem.Function(V)
     no_slip.x.array[:] = 0.0
 
-    def boundary_ag(self, x):
+    def boundary_ag(x):
         return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
 
     outflow_facets = dolfinx.mesh.locate_entities_boundary(
