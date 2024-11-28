@@ -146,5 +146,7 @@ def solve_stokes(domain, domain_marker, interface_marker):
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
         bp.write(0.0)
 
+    print(f"it {problem.solver.getConvergedReason()}")
+
 
 solve_stokes(fluid_mesh, sub_cell_tags, sub_facet_tags)
