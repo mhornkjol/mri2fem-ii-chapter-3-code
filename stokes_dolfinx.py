@@ -126,6 +126,11 @@ def solve_stokes(domain, domain_marker, interface_marker):
     new_facet_values[interface_marker.indices] = interface_marker.values
     new_tag = dolfinx.mesh.meshtags(
         domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
+    new_tag.name = "Modified interfaces"
+    with dolfinx.io.XDMFFile(domain.comm, "modified_marker.xdmf", "w") as xdmf:
+        xdmf.write_mesh(domain)
+        xdmf.write_meshtags(domain_marker, domain.geometry)
+        xdmf.write_meshtags(new_tag, domain.geometry)
 
     bcs = []
     for marker in (7, 8, 9, 12, 13):
