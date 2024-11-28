@@ -167,7 +167,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     opts["mat_mumps_icntl_24"] = 1
     # Option to support solving a singular matrix (pressure nullspace)
     opts["mat_mumps_icntl_25"] = 0
-    problem.solver.setFromOptions()
+    problem.A.setFromOptions()
 
     wh = problem.solve()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
