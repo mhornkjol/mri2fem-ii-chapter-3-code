@@ -153,12 +153,12 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     L = -g_source * q * dx(6)
 
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
-        # "ksp_type": "preonly",
-        # "pc_type": "lu",
-        # "pc_factor_mat_solver_type": "mumps",
-        "ksp_type": "minres",
-        "pc_type": "hypre",
-        "pc_hypre_type": "boomeramg",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+        # "ksp_type": "minres",
+        # "pc_type": "hypre",
+        # "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
 
