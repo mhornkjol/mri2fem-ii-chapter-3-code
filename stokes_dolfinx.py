@@ -1,6 +1,6 @@
 from basix.ufl import element, mixed_element
 from mpi4py import MPI
-
+from petsc4py import PETSc
 from pathlib import Path
 import dolfinx.fem.petsc
 import ufl
@@ -161,6 +161,13 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         # "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
+    opts = PETSc.Options()  # type: ignore
+    opts["mat_mumps_icntl_14"] = 80  # Increase MUMPS working memory
+    # Option to support solving a singular matrix (pressure nullspace)
+    opts["mat_mumps_icntl_24"] = 1
+    # Option to support solving a singular matrix (pressure nullspace)
+    opts["mat_mumps_icntl_25"] = 0
+    problem.solver.setFromOptions()
 
     wh = problem.solve()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
