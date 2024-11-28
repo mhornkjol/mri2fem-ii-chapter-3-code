@@ -161,9 +161,10 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         # "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
-    print(f"it {problem.solver.getConvergedReason()}")
 
     wh = problem.solve()
+    print(f"Converged with: {problem.solver.getConvergedReason()}")
+
     uh = wh.sub(0).collapse()
     uh.x.scatter_forward()
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
