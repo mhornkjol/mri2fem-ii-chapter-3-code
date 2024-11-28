@@ -1,6 +1,5 @@
 from basix.ufl import element, mixed_element
 from mpi4py import MPI
-from petsc4py import PETSc
 from pathlib import Path
 import dolfinx.fem.petsc
 import ufl
@@ -154,22 +153,16 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     L = -g_source * q * dx(6)
 
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-        "pc_factor_mat_solver_type": "mumps",
-        # "ksp_type": "minres",
-        # "pc_type": "hypre",
-        # "pc_hypre_type": "boomeramg",
+        # "ksp_type": "preonly",
+        # "pc_type": "lu",
+        # "pc_factor_mat_solver_type": "mumps",
+        "ksp_type": "minres",
+        "pc_type": "hypre",
+        "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
-    opts = PETSc.Options()  # type: ignore
-    opts["mat_mumps_icntl_14"] = 80  # Increase MUMPS working memory
-    # Option to support solving a singular matrix (pressure nullspace)
-    opts["mat_mumps_icntl_24"] = 1
-    # Option to support solving a singular matrix (pressure nullspace)
-    opts["mat_mumps_icntl_25"] = 0
+
     problem.solver.setOperators(problem.A, P)
-    problem.A.setFromOptions()
 
     wh = problem.solve()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
