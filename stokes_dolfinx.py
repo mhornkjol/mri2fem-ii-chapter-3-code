@@ -70,10 +70,29 @@ with dolfinx.io.XDMFFile(MPI.COMM_WORLD, args.infile, "r") as xdmf:
     domain = xdmf.read_mesh(name="Grid")
     ct = xdmf.read_meshtags(domain, name="Grid")
 
+
 with dolfinx.io.XDMFFile(MPI.COMM_WORLD, args.facet_infile, "r") as xdmf:
     domain.topology.create_connectivity(
         domain.topology.dim-1, domain.topology.dim)
     ft = xdmf.read_meshtags(domain, name="Grid")
+
+
+def boundary_ag(x):
+    return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
+
+
+outflow_facets = dolfinx.mesh.locate_entities_boundary(
+    domain, domain.topology.dim - 1, boundary_ag)
+
+f_map = domain.topology.index_map(domain.topology.dim - 1)
+num_facets_cells = f_map.size_local + f_map.num_ghosts
+new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
+new_facet_values[ft.indices] = ft.values
+new_facet_values[outflow_facets] = 16
+
+new_tag = dolfinx.mesh.meshtags(
+    domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
+
 
 fluid_markers = (1, 4, 5, 6)
 solid_markers = (2, 3)
@@ -87,25 +106,24 @@ sub_cell_tags = transfer_meshtags_to_submesh(
     domain, ct, fluid_mesh, vertex_to_full, cell_to_full)
 sub_cell_tags.name = "subdomains"
 sub_facet_tags = transfer_meshtags_to_submesh(
-    domain, ft, fluid_mesh, vertex_to_full, cell_to_full)
+    domain, new_tag, fluid_mesh, vertex_to_full, cell_to_full)
 sub_facet_tags.name = "interfaces"
 del ct, ft, domain
+with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "fluid_mesh.xdmf", "w") as xdmf:
+    xdmf.write_mesh(fluid_mesh)
+    fluid_mesh.topology.create_connectivity(
+        fluid_mesh.topology.dim-1, fluid_mesh.topology.dim)
+    xdmf.write_meshtags(sub_cell_tags, fluid_mesh.geometry)
+    xdmf.write_meshtags(sub_facet_tags, fluid_mesh.geometry)
 
-# with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "fluid_mesh.xdmf", "w") as xdmf:
-#     xdmf.write_mesh(fluid_mesh)
-#     fluid_mesh.topology.create_connectivity(
-#         fluid_mesh.topology.dim-1, fluid_mesh.topology.dim)
-#     xdmf.write_meshtags(sub_cell_tags, fluid_mesh.geometry)
-#     xdmf.write_meshtags(sub_facet_tags, fluid_mesh.geometry)
 
+def solve_stokes(brain_fluid, domain_marker, interface_marker):
 
-def solve_stokes(domain, domain_marker, interface_marker):
-
-    P2 = element("Lagrange", domain.basix_cell(),
-                 2, shape=(domain.geometry.dim, ))
-    P1 = element("Lagrange", domain.basix_cell(), 1)
+    P2 = element("Lagrange", brain_fluid.basix_cell(),
+                 2, shape=(brain_fluid.geometry.dim, ))
+    P1 = element("Lagrange", brain_fluid.basix_cell(), 1)
     taylor_hood = mixed_element([P2, P1])
-    W = dolfinx.fem.functionspace(domain, taylor_hood)
+    W = dolfinx.fem.functionspace(brain_fluid, taylor_hood)
 
     (u, p) = ufl.TrialFunctions(W)
     (v, q) = ufl.TestFunctions(W)
@@ -114,39 +132,19 @@ def solve_stokes(domain, domain_marker, interface_marker):
     no_slip = dolfinx.fem.Function(V)
     no_slip.x.array[:] = 0.0
 
-    def boundary_ag(x):
-        return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
-
-    outflow_facets = dolfinx.mesh.locate_entities_boundary(
-        domain, domain.topology.dim - 1, boundary_ag)
-
-    f_map = domain.topology.index_map(domain.topology.dim - 1)
-    num_facets_cells = f_map.size_local + f_map.num_ghosts
-    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
-    new_facet_values[interface_marker.indices] = interface_marker.values
-    new_facet_values[outflow_facets] = 16
-
-    new_tag = dolfinx.mesh.meshtags(
-        domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
-    new_tag.name = "Modified interfaces"
-    with dolfinx.io.XDMFFile(domain.comm, "modified_marker.xdmf", "w") as xdmf:
-        xdmf.write_mesh(domain)
-        xdmf.write_meshtags(domain_marker, domain.geometry)
-        xdmf.write_meshtags(new_tag, domain.geometry)
-
     bcs = []
     for marker in (7, 8, 9, 12, 13):
-        domain.topology.create_connectivity(
-            domain.topology.dim-1, domain.topology.dim)
+        brain_fluid.topology.create_connectivity(
+            brain_fluid.topology.dim-1, brain_fluid.topology.dim)
         interface_dofs = dolfinx.fem.locate_dofs_topological(
-            (W.sub(0), V), domain.topology.dim - 1, new_tag.find(marker))
+            (W.sub(0), V), brain_fluid.topology.dim - 1, interface_marker.find(marker))
         bc = dolfinx.fem.dirichletbc(no_slip, interface_dofs, W.sub(0))
         bcs.append(bc)
 
-    dx = ufl.Measure("dx", domain=domain, subdomain_data=domain_marker)
+    dx = ufl.Measure("dx", domain=brain_fluid, subdomain_data=domain_marker)
     g_source = dolfinx.fem.Constant(
-        domain, dolfinx.default_scalar_type(0.006896552))
-    mu = dolfinx.fem.Constant(domain, dolfinx.default_scalar_type(8e-4))
+        brain_fluid, dolfinx.default_scalar_type(0.006896552))
+    mu = dolfinx.fem.Constant(brain_fluid, dolfinx.default_scalar_type(8e-4))
 
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
         ufl.div(v) * p * dx - q * ufl.div(u) * dx
@@ -163,13 +161,13 @@ def solve_stokes(domain, domain_marker, interface_marker):
         # "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
+    print(f"it {problem.solver.getConvergedReason()}")
+
     wh = problem.solve()
     uh = wh.sub(0).collapse()
-
+    uh.x.scatter_forward()
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
         bp.write(0.0)
-
-    print(f"it {problem.solver.getConvergedReason()}")
 
 
 solve_stokes(fluid_mesh, sub_cell_tags, sub_facet_tags)
