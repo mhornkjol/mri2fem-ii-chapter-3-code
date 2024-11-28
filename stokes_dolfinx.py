@@ -133,11 +133,12 @@ def solve_stokes(domain, domain_marker, interface_marker):
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
 
     L = -g_source * q * dx(6)
-    print(MPI.COMM_WORLD.allreduce(
-        dolfinx.fem.assemble_scalar(dolfinx.fem.form(1*dx(6))), op=MPI.SUM))
+    print(dolfinx.fem.assemble_vector(L).x.array)
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
-        "ksp_type": "minres",
-        "pc_type": "hypre",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        # "ksp_type": "minres",
+        # "pc_type": "hypre",
         "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True})
