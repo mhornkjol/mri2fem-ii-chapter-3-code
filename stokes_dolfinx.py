@@ -114,12 +114,25 @@ def solve_stokes(domain, domain_marker, interface_marker):
     no_slip = dolfinx.fem.Function(V)
     no_slip.x.array[:] = 0.0
 
+    def boundary_ag(self, x):
+        return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
+
+    outflow_facets = dolfinx.mesh.locate_entities_boundary(
+        domain, domain.topology.dim - 1, boundary_ag)
+    f_map = domain.topology.index_map(domain.topology.dim - 1)
+    num_facets_cells = f_map.size_local + f_map.num_ghosts
+    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
+    new_facet_values[outflow_facets] = 16
+    new_facet_values[interface_marker.indices] = interface_marker.values
+    new_tag = dolfinx.mesh.meshtags(
+        domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
+
     bcs = []
     for marker in (7, 8, 9, 12, 13):
         domain.topology.create_connectivity(
             domain.topology.dim-1, domain.topology.dim)
         interface_dofs = dolfinx.fem.locate_dofs_topological(
-            (W.sub(0), V), domain.topology.dim - 1, interface_marker.find(marker))
+            (W.sub(0), V), domain.topology.dim - 1, new_tag.find(marker))
         bc = dolfinx.fem.dirichletbc(no_slip, interface_dofs, W.sub(0))
         bcs.append(bc)
 
@@ -133,7 +146,7 @@ def solve_stokes(domain, domain_marker, interface_marker):
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
 
     L = -g_source * q * dx(6)
-    print(dolfinx.fem.assemble_vector(dolfinx.fem.form(L)).x.array)
+
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
         "ksp_type": "preonly",
         "pc_type": "lu",
