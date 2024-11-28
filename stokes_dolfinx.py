@@ -119,11 +119,13 @@ def solve_stokes(domain, domain_marker, interface_marker):
 
     outflow_facets = dolfinx.mesh.locate_entities_boundary(
         domain, domain.topology.dim - 1, boundary_ag)
+
     f_map = domain.topology.index_map(domain.topology.dim - 1)
     num_facets_cells = f_map.size_local + f_map.num_ghosts
     new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
-    new_facet_values[outflow_facets] = 16
     new_facet_values[interface_marker.indices] = interface_marker.values
+    new_facet_values[outflow_facets] = 16
+
     new_tag = dolfinx.mesh.meshtags(
         domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
     new_tag.name = "Modified interfaces"
