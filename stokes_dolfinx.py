@@ -148,7 +148,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
         ufl.div(v) * p * dx - q * ufl.div(u) * dx
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
-    P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p))
+    P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p), bcs=bcs)
     P.assemble()
     L = -g_source * q * dx(6)
 
