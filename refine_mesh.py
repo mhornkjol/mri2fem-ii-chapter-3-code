@@ -5,7 +5,14 @@ import dolfinx
 import numpy as np
 
 def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Path|None=None, transfer_cell_tags: bool= False):
+    """
+    Refine a mesh, and possibly cell markers and facet markers.
+    Stores refined mesh and refined tags to files with same name is input files, but with "_refined" added to name.
 
+    Args:
+        file:
+
+    """
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, file, "r") as xdmf:
         mesh = xdmf.read_mesh(name="Grid", ghost_mode=dolfinx.mesh.GhostMode.none)
         if refinement_tags is not None or transfer_cell_tags:
@@ -28,7 +35,7 @@ def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Pat
         xdmf_out.write_mesh(refined_mesh)
 
         if transfer_cell_tags:
-            refined_mesh.topology.create_connectivity(tdim, tdim - 1)
+            refined_mesh.topology.create_connectivity(tdim, tdim)
             refined_meshtag = dolfinx.mesh.transfer_meshtag(cell_tags, refined_mesh, parent_cell)
             xdmf_out.write_meshtags(refined_meshtag, refined_mesh.geometry)
     finally:
@@ -43,6 +50,7 @@ def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Pat
         )
         with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_file.with_stem(facet_file.stem + "_refined"), "w") as xdmf_f:
             xdmf_f.write_mesh(refined_mesh)
+            refined_mesh.topology.create_connectivity(tdim-1, tdim)
             xdmf_f.write_meshtags(refined_facettag, refined_mesh.geometry)
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
