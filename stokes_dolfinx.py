@@ -107,7 +107,6 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
 
     wh = problem.solve()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
-
     uh = wh.sub(0).collapse()
     uh.x.scatter_forward()
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
@@ -184,6 +183,48 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
         bp.write(0.0)
 
+def add_outlet_to_facets(infile, facet_infile, grid_name:str):
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, infile, "r") as xdmf:
+        domain = xdmf.read_mesh(name=grid_name)
+        try:
+            ct = xdmf.read_meshtags(domain, name=grid_name)
+        except RuntimeError:
+            ct  = xdmf.read_meshtags(domain, name="mesh_tags")
+
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_infile, "r") as xdmf:
+        domain.topology.create_connectivity(
+            domain.topology.dim-1, domain.topology.dim)
+        try:
+            ft = xdmf.read_meshtags(domain, name=grid_name)
+        except RuntimeError:
+            ft  = xdmf.read_meshtags(domain, name="mesh_tags")
+
+    def boundary_ag(x):
+        return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
+
+
+    outflow_facets = dolfinx.mesh.locate_entities_boundary(
+        domain, domain.topology.dim - 1, boundary_ag)
+    fmap = domain.topology.index_map(domain.topology.dim-1)
+    facet_vector =  dolfinx.la.vector(fmap, 1, dtype=np.int32)
+    facet_vector.array[:] = 0
+    facet_vector.array[outflow_facets] = 1
+    facet_vector.scatter_reverse(dolfinx.la.InsertMode.add)
+    facet_vector.scatter_forward()
+    outflow_facets_ext = np.flatnonzero(facet_vector.array).astype(np.int32)
+
+    f_map = domain.topology.index_map(domain.topology.dim - 1)
+    num_facets_cells = f_map.size_local + f_map.num_ghosts
+    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
+    new_facet_values[ft.indices] = ft.values
+    new_facet_values[outflow_facets_ext] = 16
+
+    new_tag = dolfinx.mesh.meshtags(
+        domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
+    new_tag.name="interface_tags"
+    return domain, ct, new_tag
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -193,38 +234,13 @@ if __name__ == "__main__":
     parser.add_argument("--facet-file", type=Path, dest="facet_infile",
                         help="Path to input facet file", required=True)
     parser.add_argument("--whole", action="store_true",dest="whole", default=False)
-
+    parser.add_argument("--grid-name", type=str, dest="grid_name", default="mesh", help="Name of grid(s) in XDMF files")
     args = parser.parse_args()
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, args.infile, "r") as xdmf:
-        domain = xdmf.read_mesh(name="Grid")
-        ct = xdmf.read_meshtags(domain, name="Grid")
-
-
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, args.facet_infile, "r") as xdmf:
-        domain.topology.create_connectivity(
-            domain.topology.dim-1, domain.topology.dim)
-        ft = xdmf.read_meshtags(domain, name="Grid")
-
-
-    def boundary_ag(x):
-        return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
-
-
-    outflow_facets = dolfinx.mesh.locate_entities_boundary(
-        domain, domain.topology.dim - 1, boundary_ag)
-
-    f_map = domain.topology.index_map(domain.topology.dim - 1)
-    num_facets_cells = f_map.size_local + f_map.num_ghosts
-    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
-    new_facet_values[ft.indices] = ft.values
-    new_facet_values[outflow_facets] = 16
-
-    new_tag = dolfinx.mesh.meshtags(
-        domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
-
 
     fluid_markers = (1, 4, 5, 6)
     solid_markers = (2, 3)
+
+    domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name)
 
     if args.whole:
         solve_stokes_whole_mesh(domain, ct, new_tag, fluid_markers, solid_markers)
@@ -240,7 +256,6 @@ if __name__ == "__main__":
         sub_facet_tags = transfer_meshtags_to_submesh(
             domain, new_tag, fluid_mesh, vertex_to_full, cell_to_full)
         sub_facet_tags.name = "interfaces"
-        del ct, ft, domain
         with dolfinx.io.XDMFFile(MPI.COMM_WORLD, "fluid_mesh.xdmf", "w") as xdmf:
             xdmf.write_mesh(fluid_mesh)
             fluid_mesh.topology.create_connectivity(
