@@ -16,7 +16,7 @@ def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Pat
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, file, "r") as xdmf:
         mesh = xdmf.read_mesh(name="Grid", ghost_mode=dolfinx.mesh.GhostMode.none)
         if refinement_tags is not None or transfer_cell_tags:
-            cell_tags = xdmf.read_meshtags(mesh, name="Grid")
+            cell_tags = xdmf.read_meshtags(mesh, "Grid")
 
     tdim = mesh.topology.dim
     mesh.topology.create_entities(1)
@@ -27,7 +27,7 @@ def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Pat
         cells = np.hstack([cell_tags.find(tag) for tag in refinement_tags]).astype(np.int32)
         edges = dolfinx.mesh.compute_incidient_entities(mesh, cells, tdim, 1)
     refined_mesh, parent_cell, parent_facet = dolfinx.mesh.refine(
-        mesh, edges=edges, option=dolfinx.mesh.RefinementOption.parent_cell_and_facet
+        mesh, edges=edges, partitioner=None, option=dolfinx.mesh.RefinementOption.parent_cell_and_facet
     )
 
     try:
@@ -44,7 +44,7 @@ def refine_mesh(file:Path, refinement_tags: list[int]|None=None, facet_file: Pat
 
     if facet_file is not None:
         with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_file, "r") as xdmf:
-            facet_tags = xdmf.read_meshtags(mesh, name="Grid")
+            facet_tags = xdmf.read_meshtags(mesh, "Grid")
         refined_facettag = dolfinx.mesh.transfer_meshtag(
             facet_tags, refined_mesh, parent_cell, parent_facet
         )
