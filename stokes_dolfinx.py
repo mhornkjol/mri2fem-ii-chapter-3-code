@@ -180,7 +180,7 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
 
     uh = wh.sub(0).collapse()
     uh.x.scatter_forward()
-    with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
+    with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity_whole.bp", [uh]) as bp:
         bp.write(0.0)
 
 def add_outlet_to_facets(infile, facet_infile, grid_name:str):

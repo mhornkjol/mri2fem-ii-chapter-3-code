@@ -5,14 +5,22 @@ mu = 8e-4
 parameters["krylov_solver"]["monitor_convergence"] = True
 
 mesh = Mesh()
-with XDMFFile(mesh.mpi_comm(), "cf.xdmf") as xdmf:
+with XDMFFile(mesh.mpi_comm(), "./mesh/brain_mesh_refined.xdmf") as xdmf:
     xdmf.read(mesh)
     subdomains = MeshFunction("size_t", mesh, mesh.topology().dim())
     xdmf.read(subdomains)
 
-with XDMFFile(mesh.mpi_comm(), "mf.xdmf") as xdmf:
-    boundaries = MeshFunction("size_t", mesh, mesh.topology().dim()-1)
-    xdmf.read(boundaries)
+
+try:
+    with XDMFFile(mesh.mpi_comm(), "./mesh/brain_mesh_refined.xdmf") as xdmf:
+        boundaries = MeshFunction("size_t", mesh, mesh.topology().dim()-1)
+        xdmf.read(boundaries)
+except RuntimeError:
+    mvc = MeshValueCollection("size_t", mesh, mesh.topology().dim()-1)
+    with XDMFFile(mesh.mpi_comm(), "./mesh/brain_mesh_refined.xdmf") as xdmf:
+        xdmf.read(mvc)#, name="mesh_tags")
+    boundaries = MeshFunction("size_t", mesh, mvc)
+
 P2 = VectorElement("Lagrange", mesh.ufl_cell(), 2)
 P1 = FiniteElement("Lagrange", mesh.ufl_cell(), 1)
 TH = P2 * P1
