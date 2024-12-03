@@ -91,7 +91,8 @@ def refine_mesh_tags(in_xdmf, out_xdmf, tags=None):
 
 if __name__ == "__main__":
     adapt = compile_cpp_code(cpp_code).adapt
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        help="refine_legacy.py  --in_xdmf=./mesh/brain_mesh.xdmf --out_xdmf=refined_legacy_parts.xdmf --refine_tag 1 2 6")
     parser.add_argument("--in_xdmf", type=Path, required=True)
     parser.add_argument("--out_xdmf", type=Path, required=True)
     parser.add_argument("--refine_tag",  type=int, nargs="+")
