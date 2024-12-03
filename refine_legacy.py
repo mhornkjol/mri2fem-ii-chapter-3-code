@@ -1,19 +1,19 @@
 import argparse
 from dolfin import *
 from pathlib import Path
-# cpp_code = """
-# #include<pybind11/pybind11.h>
-# #include<dolfin/adaptivity/adapt.h>
-# #include<dolfin/mesh/Mesh.h>
-# #include<dolfin/mesh/MeshFunction.h>
-# namespace py = pybind11;
-# PYBIND11_MODULE(SIGNATURE, m) {
-#   m.def("adapt", (std::shared_ptr<dolfin::MeshFunction<std::size_t>> (*)(const dolfin::MeshFunction<std::size_t>&, std::shared_ptr<const dolfin::Mesh>)) &dolfin::adapt, py::arg("mesh_function"), py::arg("adapted_mesh"));
-#   m.def("adapt", (std::shared_ptr<dolfin::Mesh> (*)(const dolfin::Mesh&)) &dolfin::adapt );
-#   m.def("adapt", (std::shared_ptr<dolfin::Mesh> (*)(const dolfin::Mesh&,const dolfin::MeshFunction<bool>&)) &dolfin::adapt );
-# }
-# """
-# adapt = compile_cpp_code(cpp_code).adapt
+cpp_code = """
+#include<pybind11/pybind11.h>
+#include<dolfin/adaptivity/adapt.h>
+#include<dolfin/mesh/Mesh.h>
+#include<dolfin/mesh/MeshFunction.h>
+namespace py = pybind11;
+PYBIND11_MODULE(SIGNATURE, m) {
+  m.def("adapt", (std::shared_ptr<dolfin::MeshFunction<std::size_t>> (*)(const dolfin::MeshFunction<std::size_t>&, std::shared_ptr<const dolfin::Mesh>)) &dolfin::adapt, py::arg("mesh_function"), py::arg("adapted_mesh"));
+  m.def("adapt", (std::shared_ptr<dolfin::Mesh> (*)(const dolfin::Mesh&)) &dolfin::adapt );
+  m.def("adapt", (std::shared_ptr<dolfin::Mesh> (*)(const dolfin::Mesh&,const dolfin::MeshFunction<bool>&)) &dolfin::adapt );
+}
+"""
+adapt = compile_cpp_code(cpp_code).adapt
 
 
 def refine_mesh_tags(in_xdmf, out_xdmf, tags=None):
@@ -66,7 +66,7 @@ def refine_mesh_tags(in_xdmf, out_xdmf, tags=None):
 
     else:
         # Create markers for local refinement
-        markers = MeshFunction("bool", mesh, d, False)
+        markers = MeshFunction("bool", mesh, mesh.topology().dim(), False)
 
         for tag in tags:
             markers.array()[subdomains.array() == tag] = True
@@ -90,7 +90,7 @@ def refine_mesh_tags(in_xdmf, out_xdmf, tags=None):
 
 
 if __name__ == "__main__":
-    # adapt = compile_cpp_code(cpp_code).adapt
+    adapt = compile_cpp_code(cpp_code).adapt
     parser = argparse.ArgumentParser()
     parser.add_argument("--in_xdmf", type=Path, required=True)
     parser.add_argument("--out_xdmf", type=Path, required=True)
