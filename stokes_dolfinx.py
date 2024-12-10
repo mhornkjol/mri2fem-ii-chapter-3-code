@@ -106,7 +106,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True,
-        "ksp_view_eigenvalues": True})
+        "ksp_view_eigenvalues": None})
 
     problem.solver.setOperators(problem.A, P)
 
