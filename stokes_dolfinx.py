@@ -6,6 +6,10 @@ import ufl
 import argparse
 import numpy as np
 
+choroid_plexus_marker = 5
+brain_fluid_interface_markers = (7, 8, 9, 12, 13)
+production_value = 0.5 / 24 * (1000./ 60)
+water_viscoscity = dolfinx.default_scalar_type(0.697*10**(-3)*10**(3))
 
 def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent, sub_cell_to_parent):
     """
@@ -73,7 +77,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     no_slip.x.array[:] = 0.0
 
     bcs = []
-    for marker in (7, 8, 9, 12, 13):
+    for marker in brain_fluid_interface_markers:
         brain_fluid.topology.create_connectivity(
             brain_fluid.topology.dim-1, brain_fluid.topology.dim)
         interface_dofs = dolfinx.fem.locate_dofs_topological(
@@ -82,13 +86,11 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         bcs.append(bc)
 
     dx = ufl.Measure("dx", domain=brain_fluid, subdomain_data=domain_marker)
-    choroid_plexus_marker = 5
     choroid_plexus_volume = dolfinx.fem.form(1*dx(choroid_plexus_marker))
     vol = brain_fluid.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
-    production_value = 0.5 / 24 * (1000./ 60)
     g_source = dolfinx.fem.Constant(
         brain_fluid, dolfinx.default_scalar_type(production_value/vol))
-    mu = dolfinx.fem.Constant(brain_fluid, dolfinx.default_scalar_type(8e-4))
+    mu = dolfinx.fem.Constant(brain_fluid, water_viscoscity)
     print(f"G_source: {float(g_source):.2e}", flush=True)
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
         ufl.div(v) * p * dx - q * ufl.div(u) * dx
@@ -136,7 +138,7 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
     no_slip.x.array[:] = 0.0
 
     bcs = []
-    for marker in (7, 8, 9, 12, 13):
+    for marker in brain_fluid_interface_markers:
         mesh.topology.create_connectivity(
             mesh.topology.dim-1, mesh.topology.dim)
         interface_dofs = dolfinx.fem.locate_dofs_topological(
@@ -156,10 +158,12 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
 
     dx = ufl.Measure("dx", domain=mesh, subdomain_data=domain_marker)
     dxF = dx(fluid_markers)
+
+    choroid_plexus_volume = dolfinx.fem.form(1*dx(choroid_plexus_marker))
+    vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
     g_source = dolfinx.fem.Constant(
-        mesh, dolfinx.default_scalar_type(0.5/24 * (1000/3600)))
-    # REF: chapter 1 of mri2fem
-    mu = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0.697*10**(-3)*10**(3)))
+        mesh, dolfinx.default_scalar_type(production_value/vol))
+    mu = dolfinx.fem.Constant(mesh, water_viscoscity)
 
     z_ = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0))
     zero_mass = z_*ufl.inner(u, v)*dx + z_*ufl.inner(p, q)*dx
