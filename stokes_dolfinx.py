@@ -82,16 +82,20 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         bcs.append(bc)
 
     dx = ufl.Measure("dx", domain=brain_fluid, subdomain_data=domain_marker)
+    choroid_plexus_marker = 5
+    choroid_plexus_volume = dolfinx.fem.form(1*dx(choroid_plexus_marker))
+    vol = brain_fluid.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
+    production_value = 0.5 / 24 * (1000./ 60)
     g_source = dolfinx.fem.Constant(
-        brain_fluid, dolfinx.default_scalar_type(0.006896552))
+        brain_fluid, dolfinx.default_scalar_type(production_value/vol))
     mu = dolfinx.fem.Constant(brain_fluid, dolfinx.default_scalar_type(8e-4))
-
+    print(f"G_source: {float(g_source):.2e}", flush=True)
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
         ufl.div(v) * p * dx - q * ufl.div(u) * dx
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
     P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p), bcs=bcs)
     P.assemble()
-    L = -g_source * q * dx(6)
+    L = g_source * q * dx(choroid_plexus_marker)
 
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
         # "ksp_type": "preonly",
@@ -101,11 +105,13 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         "pc_type": "hypre",
         "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
-        "ksp_error_if_not_converged": True})
+        "ksp_error_if_not_converged": True,
+        "ksp_view_eigenvalues": True})
 
     problem.solver.setOperators(problem.A, P)
 
     wh = problem.solve()
+    problem.solver.view()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
     uh = wh.sub(0).collapse()
     uh.x.scatter_forward()
@@ -177,6 +183,7 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
 
     wh = problem.solve()
     print(f"Converged with: {problem.solver.getConvergedReason()}")
+    problem.solver.view()
 
     uh = wh.sub(0).collapse()
     uh.x.scatter_forward()
@@ -184,6 +191,10 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
         bp.write(0.0)
 
 def add_outlet_to_facets(infile, facet_infile, grid_name:str):
+    """
+    Add outlet tags in a given area and remove all facets marked with 0.
+    
+    """
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, infile, "r") as xdmf:
         domain = xdmf.read_mesh(name=grid_name)
         try:
@@ -219,8 +230,9 @@ def add_outlet_to_facets(infile, facet_infile, grid_name:str):
     new_facet_values[ft.indices] = ft.values
     new_facet_values[outflow_facets_ext] = 16
 
+    nonzero_facet_indices = np.flatnonzero(new_facet_values).astype(np.int32)
     new_tag = dolfinx.mesh.meshtags(
-        domain, domain.topology.dim - 1, np.arange(num_facets_cells, dtype=np.int32), new_facet_values)
+        domain, domain.topology.dim - 1, nonzero_facet_indices, new_facet_values[nonzero_facet_indices])
     new_tag.name="interface_tags"
     return domain, ct, new_tag
 
@@ -262,5 +274,6 @@ if __name__ == "__main__":
                 fluid_mesh.topology.dim-1, fluid_mesh.topology.dim)
             xdmf.write_meshtags(sub_cell_tags, fluid_mesh.geometry)
             xdmf.write_meshtags(sub_facet_tags, fluid_mesh.geometry)
+        del domain, ct, new_tag
 
         solve_stokes(fluid_mesh, sub_cell_tags, sub_facet_tags)
