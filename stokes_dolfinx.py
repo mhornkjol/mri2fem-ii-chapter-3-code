@@ -158,8 +158,8 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
     dxF = dx(fluid_markers)
     g_source = dolfinx.fem.Constant(
         mesh, dolfinx.default_scalar_type(0.5/24 * (1000/3600)))
-    # DOI: 10.1016/j.taml.2022.100418
-    mu = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(1.003*10**(-3)*10**(3)))
+    # REF: chapter 1 of mri2fem
+    mu = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0.697*10**(-3)*10**(3)))
 
     z_ = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0))
     zero_mass = z_*ufl.inner(u, v)*dx + z_*ufl.inner(p, q)*dx
