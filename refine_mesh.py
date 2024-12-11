@@ -51,6 +51,7 @@ def refine_mesh(file: Path, refinement_tags: list[int] | None = None, facet_file
     if facet_file is not None:
         with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_file, "r") as xdmf:
             facet_tags = xdmf.read_meshtags(mesh, grid_name)
+        refined_mesh.topology.create_connectivity(tdim, tdim-1)
         refined_facettag = dolfinx.mesh.transfer_meshtag(
             facet_tags, refined_mesh, parent_cell, parent_facet
         )
@@ -74,7 +75,6 @@ parser.add_argument("-g", "--grid-name", dest="grid_name", type=str,
                     help="Name of grid in file", default="Grid", required=False)
 
 if __name__ == "__main__":
-
     args = parser.parse_args()
     refine_mesh(args.infile, args.tag_list, args.f_infile,
                 not args.tf, args.grid_name)
