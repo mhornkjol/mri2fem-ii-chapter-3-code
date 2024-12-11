@@ -9,7 +9,7 @@ import numpy as np
 choroid_plexus_marker = 5
 brain_fluid_interface_markers = (7, 8, 9, 10, 11, 12, 15, 17)
 outflow_marker = 333
-production_value = 0.5 / 24 * (1000./ 60)
+production_value = 0.5 / 24 * 1e6 / 3600.
 water_viscoscity = dolfinx.default_scalar_type(0.697*10**(-3)*10**(3))
 
 def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent, sub_cell_to_parent):
@@ -99,7 +99,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     choroid_plexus_volume = dolfinx.fem.form(1*dx(choroid_plexus_marker))
     vol = brain_fluid.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
     g_source = dolfinx.fem.Constant(
-        brain_fluid, dolfinx.default_scalar_type(production_value/vol))
+        brain_fluid, dolfinx.default_scalar_type(production_value)/vol)
     mu = dolfinx.fem.Constant(brain_fluid, water_viscoscity)
     print(f"G_source: {float(g_source):.2e}", flush=True)
     a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
@@ -225,8 +225,9 @@ def add_outlet_to_facets(infile, facet_infile, grid_name:str):
         except RuntimeError:
             ft  = xdmf.read_meshtags(domain, name="mesh_tags")
 
-    def boundary_ag(x):
-        return (x[0] > -31) & (x[0] < 18) & (x[1] > -65) & (x[1] < 13) & (x[2] > 60)
+    def boundary_ag(coords):
+        x, y, z = coords
+        return (x > -31) & (x < 18) & (y > -65) & (y < 13) & (z > 60)
 
 
     outflow_facets = dolfinx.mesh.locate_entities_boundary(
