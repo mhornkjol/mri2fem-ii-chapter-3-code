@@ -7,7 +7,8 @@ import argparse
 import numpy as np
 
 choroid_plexus_marker = 5
-brain_fluid_interface_markers = (7, 8, 9, 12, 13)
+brain_fluid_interface_markers = (7, 8, 9, 10, 11, 12, 15, 17)
+outflow_marker = 333
 production_value = 0.5 / 24 * (1000./ 60)
 water_viscoscity = dolfinx.default_scalar_type(0.697*10**(-3)*10**(3))
 
@@ -34,7 +35,7 @@ def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent
         submesh.topology.dim, entity_tag.dim)
     c_e_to_v = submesh.topology.connectivity(entity_tag.dim, 0)
 
-    child_markers = np.full(num_child_entities, 0, dtype=np.int32)
+    child_markers = np.full(num_child_entities, np.iinfo(np.int32).max, dtype=np.int32)
 
     mesh.topology.create_connectivity(entity_tag.dim, 0)
     mesh.topology.create_connectivity(entity_tag.dim, mesh.topology.dim)
@@ -53,9 +54,10 @@ def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent
                         child_vertices_as_parent, p_f_to_v.links(facet)).all()
                     if is_facet:
                         child_markers[child_facet] = value
-                        facet_found = True
+ 
+    child_marker_subset = np.flatnonzero(child_markers != np.iinfo(np.int32).max)
     tags = dolfinx.mesh.meshtags(submesh, entity_tag.dim,
-                                 np.arange(num_child_entities, dtype=np.int32), child_markers)
+                                 child_marker_subset, child_markers[child_marker_subset])
     tags.name = entity_tag.name
     return tags
 
@@ -76,6 +78,14 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     no_slip = dolfinx.fem.Function(V)
     no_slip.x.array[:] = 0.0
 
+    # brain_fluid.topology.create_connectivity(
+    #     brain_fluid.topology.dim-1, brain_fluid.topology.dim)
+    # boundary_facets = dolfinx.mesh.exterior_facet_indices(brain_fluid.topology)
+    # outflow_facets = interface_marker.find(outflow_marker)
+    # nonslip_facets = np.setdiff1d(boundary_facets, outflow_facets)
+    # nonslip_dofs = dolfinx.fem.locate_dofs_topological(
+    #          (W.sub(0), V), brain_fluid.topology.dim - 1, nonslip_facets)
+    # bcs = [dolfinx.fem.dirichletbc(no_slip, nonslip_dofs, W.sub(0))]
     bcs = []
     for marker in brain_fluid_interface_markers:
         brain_fluid.topology.create_connectivity(
@@ -97,7 +107,7 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
     p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
     P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p), bcs=bcs)
     P.assemble()
-    L = g_source * q * dx(choroid_plexus_marker)
+    L = -g_source * q * dx(choroid_plexus_marker)
 
     problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options={
         # "ksp_type": "preonly",
@@ -233,7 +243,7 @@ def add_outlet_to_facets(infile, facet_infile, grid_name:str):
     num_facets_cells = f_map.size_local + f_map.num_ghosts
     new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
     new_facet_values[ft.indices] = ft.values
-    new_facet_values[outflow_facets_ext] = 16
+    new_facet_values[outflow_facets_ext] = outflow_marker
 
     nonzero_facet_indices = np.flatnonzero(new_facet_values).astype(np.int32)
     new_tag = dolfinx.mesh.meshtags(
@@ -258,7 +268,7 @@ if __name__ == "__main__":
     solid_markers = (2, 3)
 
     domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name)
-
+ 
     if args.whole:
         solve_stokes_whole_mesh(domain, ct, new_tag, fluid_markers, solid_markers)
     else:
