@@ -1,5 +1,6 @@
 from basix.ufl import element, mixed_element
 from mpi4py import MPI
+from petsc4py import PETSc
 from pathlib import Path
 import dolfinx.fem.petsc
 import ufl
@@ -119,13 +120,18 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True,
         "ksp_view_eigenvalues": None})
-
-    problem.solver.setOperators(problem.A, P)
+    problem.solver.setComputeEigenvalues(True)
 
     wh = problem.solve()
-    problem.solver.view()
+    
+    viewer = PETSc.Viewer().createASCII("ksp_output.txt")
+    problem.solver.view(viewer)
+    eigenval_output_file = open(f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.txt", "w")
+    np.savez(eigenval_output_file, eigenvalues= problem.solver.computeEigenvalues())
+        
     print(f"Converged with: {problem.solver.getConvergedReason()}")
     uh = wh.sub(0).collapse()
+    uh.name = "Velocity"
     uh.x.scatter_forward()
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, "velocity.bp", [uh]) as bp:
         bp.write(0.0)
