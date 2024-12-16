@@ -120,13 +120,14 @@ def solve_stokes(brain_fluid, domain_marker, interface_marker):
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True,
         "ksp_view_eigenvalues": None})
+    problem.solver.setOperators(problem.A, P)
     problem.solver.setComputeEigenvalues(True)
 
     wh = problem.solve()
     
     viewer = PETSc.Viewer().createASCII("ksp_output.txt")
     problem.solver.view(viewer)
-    eigenval_output_file = open(f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.txt", "w")
+    eigenval_output_file = f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.txt"
     np.savez(eigenval_output_file, eigenvalues= problem.solver.computeEigenvalues())
         
     print(f"Converged with: {problem.solver.getConvergedReason()}")
@@ -231,9 +232,12 @@ def add_outlet_to_facets(infile, facet_infile, grid_name:str):
         except RuntimeError:
             ft  = xdmf.read_meshtags(domain, name="mesh_tags")
 
-    def boundary_ag(coords):
+    def boundary_ag(coords, x_bounds=(-28,4), y_bounds=(-100,11), z_bound=40):
         x, y, z = coords
-        return (x > -31) & (x < 18) & (y > -65) & (y < 13) & (z > 60)
+        in_x = (x > x_bounds[0]) & (x < x_bounds[1])
+        in_y = (y > y_bounds[0]) & (y < y_bounds[1])
+        in_z = (z > z_bound)
+        return in_x & in_y & in_z
 
 
     outflow_facets = dolfinx.mesh.locate_entities_boundary(
