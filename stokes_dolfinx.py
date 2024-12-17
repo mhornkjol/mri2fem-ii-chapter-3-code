@@ -65,13 +65,15 @@ def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent
 
 
 def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
+    if mesh.comm.rank == 0:
+        print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
     # Define mixed function space
     cell = mesh.basix_cell()
     P2 = element("Lagrange", cell, 2, shape=(mesh.geometry.dim, ))
     P1 = element("Lagrange", cell, 1)
     taylor_hood = mixed_element([P2, P1])
     W = dolfinx.fem.functionspace(mesh, taylor_hood)
-
+    
     # Compute fluid source
     dx = ufl.Measure("dx", domain=mesh, subdomain_data=domain_marker)
     choroid_plexus_volume = dolfinx.fem.form(1*dx(cp_marker))
@@ -106,7 +108,8 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
     P.assemble()    
 
     # Solve linear problem
-    print(f"G_source: {float(g_source):.2e}", flush=True)
+    if mesh.comm.rank == 0:
+        print(f"G_source: {float(g_source):.2e}", flush=True)
     solver_opts = {
         "ksp_type": "minres",
         "pc_type": "hypre",
@@ -127,14 +130,23 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
     problem.solver.view(viewer)
     eigenval_output_file = (results_dir / f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.txt").absolute().as_posix()
     np.savez(eigenval_output_file, eigenvalues= problem.solver.computeEigenvalues())
-        
-    print(f"Converged with: {problem.solver.getConvergedReason()} after {problem.solver.getIterationNumber()} iterations")
+
+    if mesh.comm.rank == 0:
+        print(f"Converged with: {problem.solver.getConvergedReason()} after {problem.solver.getIterationNumber()} iterations", flush=True)
     uh = wh.sub(0).collapse()
     uh.name = "Velocity"
     uh.x.scatter_forward()
     ph = wh.sub(0).collapse()
     ph.name = "Velocity"
     ph.x.scatter_forward()
+
+    if mesh.comm.rank == 0:
+        u_dmap = uh.function_space.dofmap
+        print(f"Number of dofs in velocity space: {u_dmap.index_map.size_global*u_dmap.index_map_bs}",
+              flush = True)
+        p_dmap = ph.function_space.dofmap
+        print(f"Number of dofs in pressure space: {p_dmap.index_map.size_global*p_dmap.index_map_bs}",
+              flush=True)
 
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, results_dir / "velocity.bp", [uh]) as bp:
         bp.write(0.0)
