@@ -65,8 +65,13 @@ def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent
 
 
 def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
+    vol_form = dolfinx.fem.form(dolfinx.dolfinx.fem.Constant(mesh, 1.)*ufl.dx)
+    fluid_vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(vol_form), op=MPI.SUM)
     if mesh.comm.rank == 0:
+        print(f"Fluid volume: {fluid_vol:.5e}", flush=True)
         print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
+        print(f"Num vertices: {mesh.topology.index_map(0).size_global}", flush=True)
+
     # Define mixed function space
     cell = mesh.basix_cell()
     P2 = element("Lagrange", cell, 2, shape=(mesh.geometry.dim, ))
@@ -92,7 +97,7 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
     # Define no-slip Dirichlet conditions
     V, _ = W.sub(0).collapse()
     no_slip = dolfinx.fem.Function(V)
-    no_slip.x.array[:] = 0.0
+    no_slip.x.array[:] = 10
     bcs = []
     mesh.topology.create_connectivity(
         interface_marker.dim, mesh.topology.dim)
@@ -128,7 +133,7 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
     # Store solver info
     viewer = PETSc.Viewer().createASCII((results_dir / "ksp_output.txt").absolute().as_posix())
     problem.solver.view(viewer)
-    eigenval_output_file = (results_dir / f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.txt").absolute().as_posix()
+    eigenval_output_file = (results_dir / f"eigenvalues_{MPI.COMM_WORLD.rank}_{MPI.COMM_WORLD.size}.npz").absolute().as_posix()
     np.savez(eigenval_output_file, eigenvalues= problem.solver.computeEigenvalues())
 
     if mesh.comm.rank == 0:

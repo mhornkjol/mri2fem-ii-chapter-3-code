@@ -2,3 +2,7 @@
 *.pyc
 __pycache__
 *.mesh
+*.bp
+*.h5
+*.xdmf
+*.npz
