@@ -64,67 +64,77 @@ def transfer_meshtags_to_submesh(mesh, entity_tag, submesh, sub_vertex_to_parent
 
 
 
-def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
+def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     vol_form = dolfinx.fem.form(dolfinx.dolfinx.fem.Constant(mesh, 1.)*ufl.dx)
     fluid_vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(vol_form), op=MPI.SUM)
     if mesh.comm.rank == 0:
         print(f"Fluid volume: {fluid_vol:.5e}", flush=True)
         print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
         print(f"Num vertices: {mesh.topology.index_map(0).size_global}", flush=True)
+    assert mesh.geometry.dim == 3
+    assert mesh.topology.dim == 3
+    assert facet_tags.dim == 2
 
     # Define mixed function space
     cell = mesh.basix_cell()
-    P2 = element("Lagrange", cell, 2, shape=(mesh.geometry.dim, ))
+    P2 = element("Lagrange", cell, 2, shape=(3, ))
     P1 = element("Lagrange", cell, 1)
     taylor_hood = mixed_element([P2, P1])
     W = dolfinx.fem.functionspace(mesh, taylor_hood)
-    
+
+    dx = ufl.Measure("dx", domain=mesh, subdomain_data=cell_tags)
+
     # Compute fluid source
-    dx = ufl.Measure("dx", domain=mesh, subdomain_data=domain_marker)
+    comm = mesh.comm
     choroid_plexus_volume = dolfinx.fem.form(1*dx(cp_marker))
-    vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
-    g_source = dolfinx.fem.Constant(
-        mesh, dolfinx.default_scalar_type(production_value)/vol)
+    vol = comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
+    g_source = dolfinx.fem.Constant(mesh, production_value/vol)
+
 
     # Define variational formulation
     mu = dolfinx.fem.Constant(mesh, water_viscosity)
     (u, p) = ufl.TrialFunctions(W)
     (v, q) = ufl.TestFunctions(W)
-    a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx - \
-        ufl.div(v) * p * dx - q * ufl.div(u) * dx
+    a = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
+    a -= ufl.div(v) * p * dx 
+    a -= q * ufl.div(u) * dx
     L = -g_source * q * dx(cp_marker)
 
     # Define no-slip Dirichlet conditions
     V, _ = W.sub(0).collapse()
     no_slip = dolfinx.fem.Function(V)
-    no_slip.x.array[:] = 10
+    no_slip.x.array[:] = 0
     bcs = []
-    mesh.topology.create_connectivity(
-        interface_marker.dim, mesh.topology.dim)
+    mesh.topology.create_connectivity(facet_tags.dim, mesh.topology.dim)
     for marker in noslip_markers:
-        interface_dofs = dolfinx.fem.locate_dofs_topological(
-            (W.sub(0), V),interface_marker.dim, interface_marker.find(marker))
-        bc = dolfinx.fem.dirichletbc(no_slip, interface_dofs, W.sub(0))
+        facets = facet_tags.find(marker)
+        fixed_dofs = dolfinx.fem.locate_dofs_topological(
+            (W.sub(0), V), facet_tags.dim, facets)
+        bc = dolfinx.fem.dirichletbc(no_slip, fixed_dofs, W.sub(0))
         bcs.append(bc)
 
     # Create preconditioner
-    p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx + (1.0 / mu) * p * q * dx
-    P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p), bcs=bcs)
-    P.assemble()    
+    p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
+    p += (1.0 / mu) * p * q * dx
+    p_compiled = dolfinx.fem.form(p)
+    P = dolfinx.fem.petsc.assemble_matrix(p_compiled, bcs=bcs)
+    P.assemble()
 
     # Solve linear problem
     if mesh.comm.rank == 0:
         print(f"G_source: {float(g_source):.2e}", flush=True)
-    solver_opts = {
+    opts = {
         "ksp_type": "minres",
         "pc_type": "hypre",
         "pc_hypre_type": "boomeramg",
         "ksp_monitor": None,
         "ksp_error_if_not_converged": True,
+        "ksp_atol": 1e-6,
+        "ksp_rtol": 1e-6
         # "ksp_view_eigenvalues": None
         }
     problem = dolfinx.fem.petsc.LinearProblem(
-        a, L, bcs=bcs, petsc_options=solver_opts)
+        a, L, bcs=bcs, petsc_options=opts)
     problem.solver.setOperators(problem.A, P)
     problem.solver.setComputeEigenvalues(True)
 
@@ -160,7 +170,7 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
 
 
 
-def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers, results_dir):
+def solve_stokes_whole_mesh(mesh, domain_marker, facet_tags, fluid_markers, results_dir):
 
     P2 = element("Lagrange", mesh.basix_cell(),
                  2, shape=(mesh.geometry.dim, ))
@@ -179,9 +189,9 @@ def solve_stokes_whole_mesh(mesh, domain_marker, interface_marker, fluid_markers
     for marker in noslip_markers:
         mesh.topology.create_connectivity(
             mesh.topology.dim-1, mesh.topology.dim)
-        interface_dofs = dolfinx.fem.locate_dofs_topological(
-            (W.sub(0), V), mesh.topology.dim - 1, interface_marker.find(marker))
-        bc = dolfinx.fem.dirichletbc(no_slip, interface_dofs, W.sub(0))
+        fixed_dofs = dolfinx.fem.locate_dofs_topological(
+            (W.sub(0), V), mesh.topology.dim - 1, facet_tags.find(marker))
+        bc = dolfinx.fem.dirichletbc(no_slip, fixed_dofs, W.sub(0))
         bcs.append(bc)
 
     dmap = W.dofmap
