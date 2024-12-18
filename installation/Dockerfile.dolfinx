@@ -10,10 +10,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN mamba upgrade -y mamba
 
 # Copy environment and requirements files into docker env
-COPY environment.yml .
+COPY environment_dolfinx.yml .
 
-# Update environment file with new environment name
-RUN mamba env update --file environment.yml --name mri2fem-chapter3
-SHELL ["mamba", "run", "-n", "mri2fem-chapter3", "/bin/bash", "-c"]
+RUN mamba env create --file environment_dolfinx.yml
+SHELL ["mamba", "run", "-n", "mri2fem-chapter3-dolfinx", "/bin/bash", "-c"]
 
-RUN echo "source activate mri2fem-chapter3" > ~/.bashrc
+RUN echo "source activate mri2fem-chapter3-dolfinx" > ~/.bashrc

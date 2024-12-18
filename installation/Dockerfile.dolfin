@@ -1,0 +1,14 @@
+FROM condaforge/mambaforge 
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Upgrade mamba
+RUN mamba upgrade -y mamba
+
+# Copy environment and requirements files into docker env
+COPY environment_dolfin.yml .
+
+RUN mamba env create --file environment_dolfin.yml
+SHELL ["mamba", "run", "-n", "mri2fem-chapter3-dolfin", "/bin/bash", "-c"]
+
+RUN echo "source activate mri2fem-chapter3-dolfin" > ~/.bashrc
