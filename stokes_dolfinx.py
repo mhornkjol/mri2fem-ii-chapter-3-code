@@ -8,7 +8,7 @@ import argparse
 import numpy as np
 
 cp_marker = 5
-noslip_markers = (7, 8, 9, 10, 11, 12, 15, 17)
+noslip_markers = (7, 8, 9, 10, 11, 13, 14, 16)
 outflow_marker = 333
 production_value = 0.5 / 24 * 1e6 / 3600. # L/day -> (mcm)^3 / s
 water_viscosity = dolfinx.default_scalar_type(0.697*10**(-3)*10**(3))
@@ -141,8 +141,8 @@ def solve_stokes(mesh, domain_marker, interface_marker, results_dir: Path):
     uh = wh.sub(0).collapse()
     uh.name = "Velocity"
     uh.x.scatter_forward()
-    ph = wh.sub(0).collapse()
-    ph.name = "Velocity"
+    ph = wh.sub(1).collapse()
+    ph.name = "Pressure"
     ph.x.scatter_forward()
 
     if mesh.comm.rank == 0:
