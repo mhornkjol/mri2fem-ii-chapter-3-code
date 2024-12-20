@@ -28,7 +28,8 @@ def read_from_arrays(
     """
     # Create distributed mesh
     c_el = ufl.Mesh(basix.ufl.element("Lagrange", "tetrahedron", 1, shape=(3,)))
-    mesh = dolfinx.mesh.create_mesh(comm, cells, points, c_el)
+    partitioner = dolfinx.cpp.mesh.create_cell_partitioner(dolfinx.mesh.GhostMode.none)
+    mesh = dolfinx.mesh.create_mesh(comm, cells, points, c_el, partitioner=partitioner)
 
     # Create mesh tag for cells
     local_entities, local_values = dolfinx.io.distribute_entity_data(
@@ -60,7 +61,7 @@ def read_from_arrays(
 
 
 def read_from_svmtk_npz(
-    comm: MPI.Intracomm, infile: Path
+    comm: MPI.Intracomm, infile: Path | str
 ) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags, dolfinx.mesh.MeshTags]:
     """Read mesh and mesh tags from an SVMTK npz file.
 
@@ -68,6 +69,7 @@ def read_from_svmtk_npz(
         comm: MPI communicator to distribute mesh over
         infile: Path to input file
     """
+    infile = Path(infile)
     _required_keys = ["cell", "points", "cell_tags", "facets", "facet_tags"]
     assert infile.suffix == ".npz"
     points = np.empty((0, 3))
