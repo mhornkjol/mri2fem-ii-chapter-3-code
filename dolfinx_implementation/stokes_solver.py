@@ -272,6 +272,61 @@ def solve_stokes_whole_mesh(mesh, domain_marker, facet_tags, fluid_markers, resu
         bp.write(0.0)
 
 
+def extend_facet_marker_with_outlet(
+    domain: dolfinx.mesh.Mesh,
+    facet_marker: dolfinx.mesh.MeshTags,
+    x_bounds: tuple[float, float] = (-28, 4),
+    y_bounds: tuple[float] = (-100, 11),
+    z_bound: float = 40,
+) -> dolfinx.mesh.MeshTags:
+    """Extend a facet marker with an outlet tag for all facets that
+    are on the boundary and within `x_bounds x y_bounds, x [z_bound, infty]`
+
+    Args:
+        domain: The mesh
+        facet_marker: The facet marker
+        x_bounds: Minimum and maximum for x-coordinate.
+        y_bounds: Minimum and maximum for y-coordinate.
+        z_bound: Minium z-coordinate.
+
+    Returns:
+        New meshtag with extra markers
+    """
+
+    def boundary_ag(coords):
+        x, y, z = coords
+        in_x = (x > x_bounds[0]) & (x < x_bounds[1])
+        in_y = (y > y_bounds[0]) & (y < y_bounds[1])
+        in_z = z > z_bound
+        return in_x & in_y & in_z
+
+    outflow_facets = dolfinx.mesh.locate_entities_boundary(
+        domain, domain.topology.dim - 1, boundary_ag
+    )
+    fmap = domain.topology.index_map(domain.topology.dim - 1)
+    facet_vector = dolfinx.la.vector(fmap, 1, dtype=np.int32)
+    facet_vector.array[:] = 0
+    facet_vector.array[outflow_facets] = 1
+    facet_vector.scatter_reverse(dolfinx.la.InsertMode.add)
+    facet_vector.scatter_forward()
+    outflow_facets_ext = np.flatnonzero(facet_vector.array).astype(np.int32)
+
+    f_map = domain.topology.index_map(domain.topology.dim - 1)
+    num_facets_cells = f_map.size_local + f_map.num_ghosts
+    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
+    new_facet_values[facet_marker.indices] = facet_marker.values
+    new_facet_values[outflow_facets_ext] = outflow_marker
+    nonzero_facet_indices = np.flatnonzero(new_facet_values).astype(np.int32)
+    new_tag = dolfinx.mesh.meshtags(
+        domain,
+        domain.topology.dim - 1,
+        nonzero_facet_indices,
+        new_facet_values[nonzero_facet_indices],
+    )
+    new_tag.name = "interface_tags"
+    return new_tag
+
+
 def add_outlet_to_facets(
     infile: Path,
     facet_infile: Path,
@@ -297,39 +352,7 @@ def add_outlet_to_facets(
             ft = xdmf.read_meshtags(domain, name=grid_name)
         except RuntimeError:
             ft = xdmf.read_meshtags(domain, name="mesh_tags")
-
-    def boundary_ag(coords):
-        x, y, z = coords
-        in_x = (x > x_bounds[0]) & (x < x_bounds[1])
-        in_y = (y > y_bounds[0]) & (y < y_bounds[1])
-        in_z = z > z_bound
-        return in_x & in_y & in_z
-
-    outflow_facets = dolfinx.mesh.locate_entities_boundary(
-        domain, domain.topology.dim - 1, boundary_ag
-    )
-    fmap = domain.topology.index_map(domain.topology.dim - 1)
-    facet_vector = dolfinx.la.vector(fmap, 1, dtype=np.int32)
-    facet_vector.array[:] = 0
-    facet_vector.array[outflow_facets] = 1
-    facet_vector.scatter_reverse(dolfinx.la.InsertMode.add)
-    facet_vector.scatter_forward()
-    outflow_facets_ext = np.flatnonzero(facet_vector.array).astype(np.int32)
-
-    f_map = domain.topology.index_map(domain.topology.dim - 1)
-    num_facets_cells = f_map.size_local + f_map.num_ghosts
-    new_facet_values = np.full(num_facets_cells, 0, dtype=np.int32)
-    new_facet_values[ft.indices] = ft.values
-    new_facet_values[outflow_facets_ext] = outflow_marker
-
-    nonzero_facet_indices = np.flatnonzero(new_facet_values).astype(np.int32)
-    new_tag = dolfinx.mesh.meshtags(
-        domain,
-        domain.topology.dim - 1,
-        nonzero_facet_indices,
-        new_facet_values[nonzero_facet_indices],
-    )
-    new_tag.name = "interface_tags"
+    new_tag = extend_facet_marker_with_outlet(domain, ft, x_bounds, y_bounds, z_bound)
     return domain, ct, new_tag
 
 
