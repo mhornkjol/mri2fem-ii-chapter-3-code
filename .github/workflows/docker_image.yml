@@ -49,7 +49,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          file: installation/Dockerfile.${{ matrix.fem_backend }}
+          working-directory: installation
+          file: Dockerfile.${{ matrix.fem_backend }}
           platforms: ${{ matrix.platform.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}",push-by-digest=true,name-canonical=true,push=true
