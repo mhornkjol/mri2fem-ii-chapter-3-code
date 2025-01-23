@@ -334,6 +334,8 @@ def add_outlet_to_facets(
     x_bounds: tuple[float, float] = (-28, 4),
     y_bounds: tuple[float] = (-100, 11),
     z_bound: float = 40,
+    cell_tags_name: str = "mesh_tags",
+    facet_tags_name: str = "mesh_tags"
 ):
     """
     Add outlet tags in a given area and remove all facets marked with 0.
@@ -344,14 +346,14 @@ def add_outlet_to_facets(
         try:
             ct = xdmf.read_meshtags(domain, name=grid_name)
         except RuntimeError:
-            ct = xdmf.read_meshtags(domain, name="mesh_tags")
+            ct = xdmf.read_meshtags(domain, name=cell_tags_name)
 
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_infile, "r") as xdmf:
         domain.topology.create_connectivity(domain.topology.dim - 1, domain.topology.dim)
         try:
             ft = xdmf.read_meshtags(domain, name=grid_name)
         except RuntimeError:
-            ft = xdmf.read_meshtags(domain, name="mesh_tags")
+            ft = xdmf.read_meshtags(domain, name=facet_tags_name)
     new_tag = extend_facet_marker_with_outlet(domain, ft, x_bounds, y_bounds, z_bound)
     return domain, ct, new_tag
 
@@ -377,6 +379,21 @@ if __name__ == "__main__":
         help="Name of grid(s) in XDMF files",
     )
     parser.add_argument(
+        "--cell-tag",
+        type=str,
+        dest="cell_name",
+        default="cell_tags",
+        help="Name of cell markers in XDMF",
+    )
+    parser.add_argument(
+        "--facet-tag",
+        type=str,
+        dest="facet_name",
+        default="cell_tags",
+        help="Name of facet markers in XDMF",
+    )
+
+    parser.add_argument(
         "--results-dir",
         type=Path,
         dest="rdir",
@@ -388,7 +405,9 @@ if __name__ == "__main__":
     fluid_markers = (1, 4, 5, 6)
     solid_markers = (2, 3)
     rdir = args.rdir
-    domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name)
+    domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name,
+                                               cell_tags_name=args.cell_name,
+                                               facet_tags_name=args.facet_name)
 
     if args.whole:
         solve_stokes_whole_mesh(domain, ct, new_tag, fluid_markers, rdir)
