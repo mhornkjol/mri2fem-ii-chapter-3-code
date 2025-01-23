@@ -18,8 +18,8 @@ jobs:
         fem_backend: ["dolfin", "dolfinx"]
         platform:
           [
-            { runner: "ubuntu-24.04", platform: linux/amd64 },
-            { runner: "ubuntu-24.04-arm", platform: "linux/arm64" },
+            { runner: "ubuntu-24.04", platform: amd64 },
+            { runner: "ubuntu-24.04-arm", platform: arm64 },
           ]
     runs-on: ${{ matrix.platform.runner }}
     permissions:
@@ -51,7 +51,7 @@ jobs:
         with:
           context: installation/
           file: installation/Dockerfile.${{ matrix.fem_backend }}
-          platforms: ${{ matrix.platform.platform }}
+          platforms: linux/${{ matrix.platform.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}",push-by-digest=true,name-canonical=true,push=true
 
