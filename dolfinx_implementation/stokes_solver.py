@@ -80,7 +80,7 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
 
     # Define mixed function space
     cell = mesh.basix_cell()
-    P2 = element("Lagrange", cell, 2, shape=(3,))
+    P2 = element("Lagrange", cell, 2, shape=(mesh.geometry.dim,))
     P1 = element("Lagrange", cell, 1)
     taylor_hood = mixed_element([P2, P1])
     W = dolfinx.fem.functionspace(mesh, taylor_hood)
@@ -115,9 +115,9 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
         bcs.append(bc)
 
     # Create preconditioner
-    p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
-    p += (1.0 / mu) * p * q * dx
-    p_compiled = dolfinx.fem.form(p)
+    P = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
+    P += (1.0 / mu) * p * q * dx
+    p_compiled = dolfinx.fem.form(P)
     P = dolfinx.fem.petsc.assemble_matrix(p_compiled, bcs=bcs)
     P.assemble()
 
