@@ -148,7 +148,10 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
         .absolute()
         .as_posix()
     )
-    np.savez(eigenval_output_file, eigenvalues=problem.solver.computeEigenvalues())
+    eigenvalues = problem.solver.computeEigenvalues()
+    if mesh.comm.rank == 0: 
+        print(f"Condition number: {np.max(np.abs(eigenvalues))/np.min(np.abs(eigenvalues)):.5e}")
+    np.savez(eigenval_output_file, eigenvalues=eigenvalues)
 
     if mesh.comm.rank == 0:
         print(
@@ -327,20 +330,12 @@ def extend_facet_marker_with_outlet(
     return new_tag
 
 
-def add_outlet_to_facets(
-    infile: Path,
-    facet_infile: Path,
-    grid_name: str,
-    x_bounds: tuple[float, float] = (-28, 4),
-    y_bounds: tuple[float] = (-100, 11),
-    z_bound: float = 40,
-    cell_tags_name: str = "mesh_tags",
-    facet_tags_name: str = "mesh_tags"
-):
-    """
-    Add outlet tags in a given area and remove all facets marked with 0.
-
-    """
+def read_mesh(infile: Path,
+              facet_infile: Path,
+              grid_name: str,
+              cell_tags_name: str = "mesh_tags",
+              facet_tags_name: str = "mesh_tags") -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags,
+                                                           dolfinx.mesh.MeshTags]:
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, infile, "r") as xdmf:
         domain = xdmf.read_mesh(name=grid_name)
         try:
@@ -354,6 +349,24 @@ def add_outlet_to_facets(
             ft = xdmf.read_meshtags(domain, name=grid_name)
         except RuntimeError:
             ft = xdmf.read_meshtags(domain, name=facet_tags_name)
+    return domain, ct, ft
+
+
+def add_outlet_to_facets(
+    infile: Path,
+    facet_infile: Path,
+    grid_name: str,
+    x_bounds: tuple[float, float] = (-28, 4),
+    y_bounds: tuple[float] = (-100, 11),
+    z_bound: float = 40,
+    cell_tags_name: str = "mesh_tags",
+    facet_tags_name: str = "mesh_tags"
+) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags, dolfinx.mesh.MeshTags]:
+    """
+    Add outlet tags in a given area and remove all facets marked with 0.
+
+    """
+    domain, ct, ft = read_mesh(infile, facet_infile, grid_name, cell_tags_name, facet_tags_name)
     new_tag = extend_facet_marker_with_outlet(domain, ft, x_bounds, y_bounds, z_bound)
     return domain, ct, new_tag
 
@@ -400,14 +413,18 @@ if __name__ == "__main__":
         default="results",
         help="Path to folder where results are stored",
     )
+    parser.add_argument("--add-outlets", dest="add_outlet", action="store_true", default=False, help="Add outlet markers to mesh")
     args = parser.parse_args()
 
     fluid_markers = (1, 4, 5, 6)
     solid_markers = (2, 3)
     rdir = args.rdir
-    domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name,
-                                               cell_tags_name=args.cell_name,
-                                               facet_tags_name=args.facet_name)
+    if args.add_outlet:
+        domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name,
+                                                cell_tags_name=args.cell_name,
+                                                facet_tags_name=args.facet_name)
+    else:
+        domain, ct, new_tag = read_mesh(args.infile, args.facet_infile, args.grid_name, args.cell_name, args.facet_name)
 
     if args.whole:
         solve_stokes_whole_mesh(domain, ct, new_tag, fluid_markers, rdir)
