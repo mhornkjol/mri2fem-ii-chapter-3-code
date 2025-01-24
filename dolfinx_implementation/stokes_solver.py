@@ -70,10 +70,6 @@ def transfer_meshtags_to_submesh(
 def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     vol_form = dolfinx.fem.form(dolfinx.dolfinx.fem.Constant(mesh, 1.0) * ufl.dx)
     fluid_vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(vol_form), op=MPI.SUM)
-    if mesh.comm.rank == 0:
-        print(f"Fluid volume: {fluid_vol:.5e}", flush=True)
-        print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
-        print(f"Num vertices: {mesh.topology.index_map(0).size_global}", flush=True)
     assert mesh.geometry.dim == 3
     assert mesh.topology.dim == 3
     assert facet_tags.dim == 2
@@ -122,8 +118,6 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     P.assemble()
 
     # Solve linear problem
-    if mesh.comm.rank == 0:
-        print(f"G_source: {float(g_source):.2e}", flush=True)
     opts = {
         "ksp_type": "minres",
         "pc_type": "hypre",
@@ -149,15 +143,7 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
         .as_posix()
     )
     eigenvalues = problem.solver.computeEigenvalues()
-    if mesh.comm.rank == 0: 
-        print(f"Condition number: {np.max(np.abs(eigenvalues))/np.min(np.abs(eigenvalues)):.5e}")
     np.savez(eigenval_output_file, eigenvalues=eigenvalues)
-
-    if mesh.comm.rank == 0:
-        print(
-            f"Converged with: {problem.solver.getConvergedReason()} after {problem.solver.getIterationNumber()} iterations",
-            flush=True,
-        )
     uh = wh.sub(0).collapse()
     uh.name = "Velocity"
     uh.x.scatter_forward()
@@ -166,6 +152,16 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     ph.x.scatter_forward()
 
     if mesh.comm.rank == 0:
+        print(f"G_source: {float(g_source):.2e}", flush=True)
+        print(f"Fluid volume: {fluid_vol:.5e}", flush=True)
+        print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
+        print(f"Num vertices: {mesh.topology.index_map(0).size_global}", flush=True)
+        print(f"Condition number: {np.max(np.abs(eigenvalues))/np.min(np.abs(eigenvalues)):.5e}", flush=True)
+        print(
+            f"Converged with: {problem.solver.getConvergedReason()} after {problem.solver.getIterationNumber()} iterations",
+            flush=True,
+        )
+
         u_dmap = uh.function_space.dofmap
         print(
             f"Number of dofs in velocity space: {u_dmap.index_map.size_global*u_dmap.index_map_bs}",
@@ -395,14 +391,14 @@ if __name__ == "__main__":
         "--cell-tag",
         type=str,
         dest="cell_name",
-        default="cell_tags",
+        default="mesh_tags",
         help="Name of cell markers in XDMF",
     )
     parser.add_argument(
         "--facet-tag",
         type=str,
         dest="facet_name",
-        default="cell_tags",
+        default="mesh_tags",
         help="Name of facet markers in XDMF",
     )
 
