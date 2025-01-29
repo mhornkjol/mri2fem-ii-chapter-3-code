@@ -1,4 +1,4 @@
-name: mri2fem-chapter3
+name: mri2fem-chapter3-dolfin
 channels:
   - conda-forge
 dependencies:
