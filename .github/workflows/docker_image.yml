@@ -76,6 +76,9 @@ jobs:
       matrix:
         fem_backend: ["dolfin", "dolfinx"]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     needs:
       - build-image
     steps:
