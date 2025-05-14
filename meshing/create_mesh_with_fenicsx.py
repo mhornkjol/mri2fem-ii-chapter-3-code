@@ -1,5 +1,8 @@
+import SVMTK as svm
+from pathlib import Path
 
 
+    
 def repair_surface(surface, edge_length=1.0):
     # Keeps the largest connected component.
     surface.keep_largest_connected_component() 
@@ -20,8 +23,6 @@ def repair_surface(surface, edge_length=1.0):
 
 if __name__ == "__main__":
     print("Start ", __file__)
-    import SVMTK as svm
-    from pathlib import Path
     outdir = Path("mesh")
     outdir.mkdir(exist_ok=True)
     
@@ -70,11 +71,10 @@ if __name__ == "__main__":
     # Get clips perpendicular to the centerline. 
     clp1 = aqueduct.get_perpendicular_cut(p1,.0) 
     clp2 = aqueduct.get_perpendicular_cut(p2,.0 )
-    
+   
     # Clips the ventricles system so that only cerebral aqueduct remains.
     aqueduct.clip(clp1, invert=True ))
     aqueduct.clip(clp2) 
-
      
     # Set the structure of the surfaces.
     surfaces = [bounding_surface, lhpial, rhpial, white, ventricles, lhcp, rhcp, aqueduct]
@@ -103,7 +103,24 @@ if __name__ == "__main__":
     
     domain.create_mesh(Z.resolution)
     
+    # Extract the mesh structure and tags
+    points     = np.array(domain.get_points())
+    cells      = np.array(domain.get_cells())
+    cell_tags  = np.array(domain.get_cell_tags())
+    facets     = np.array(domain.get_facets())
+    facet_tags = np.array(domain.get_facet_tags())
 
-    domain.save(str(outdir / "gonzo.mesh"))
+    del domain
+    # fenicsx dependencies 
+    from mpi4py import MPI  
+    import dolfinx
+    import basix.ufl
+    import ufl
 
+    c_l = ufl.Mesh(basix.ufl.element("Lagrange", "tetrahedron", 1, shape=(3,)))
+    mesh = dolfinx.mesh.create_mesh(  MPI.COMM_WORLD, cells, points, c_l)
+    
+    with dolfinx.io.XDMFFile(mesh.comm, str(outdir / "gonzo.xdmf"), "w")  as xdmf: 
+         xdmf.write_mesh(mesh)
+         
     print("Finish ", __file__)
