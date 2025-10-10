@@ -28,16 +28,17 @@ if __name__ == "__main__":
     import argparse
     import time 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rhpial',         default="stl_files/rhpial.final.stl", type=str)
-    parser.add_argument('--lhpial',         default="stl_files/lhpial.final.stl", type=str)
-    parser.add_argument('--white',          default="stl_files/white.final.stl", type=str)    
-    parser.add_argument('--dura',           default="stl_files/dura.final.stl", type=str)
-    parser.add_argument('--ventricles',     default="stl_files/ventricles.final.stl", type=str)
-    parser.add_argument('--foramen_magnum', default="stl_files/foramen_magnum.stl", type=str)    
-    parser.add_argument('--rhchoroid',      default="stl_files/rh-choroid-plexus.stl", type=str)        
-    parser.add_argument('--lhchoroid',      default="stl_files/lh-choroid-plexus.stl", type=str)        
+    parser.add_argument('--rhpial',         default="../stl_files/rhpial.final.stl", type=str)
+    parser.add_argument('--lhpial',         default="../stl_files/lhpial.final.stl", type=str)
+    parser.add_argument('--white',          default="../stl_files/white.final.stl", type=str)    
+    parser.add_argument('--dura',           default="../stl_files/dura.final.stl", type=str)
+    parser.add_argument('--ventricles',     default="../stl_files/ventricles.final.stl", type=str)
+    parser.add_argument('--foramen_magnum', default="../stl_files/foramen-magnum.stl", type=str)    
+    parser.add_argument('--rhchoroid',      default="../stl_files/rhchoroid.plexus.final.stl", type=str)        
+    parser.add_argument('--lhchoroid',      default="../stl_files/lhchoroid.plexus.final.stl", type=str)         
     parser.add_argument('--resolution'    , default=84, type=float)
 
+    Z = parser.parse_args()
     white   = svm.Surface(Z.white) 
     lh_pial = svm.Surface(Z.lhpial)
     rh_pial = svm.Surface(Z.rhpial)
@@ -59,6 +60,7 @@ if __name__ == "__main__":
     bounding_surface.adjust_boundary(1.0)
     bounding_surface = repair_surface(bounding_surface,1.0)    
 
+    foramen_magnum = svm.Surface(Z.foramen_magnum)
     # Clips the bounding and white surface.
     bounding_surface.clip(foramen_magnum,True)
     white.clip(foramen_magnum,True)    
@@ -72,12 +74,12 @@ if __name__ == "__main__":
     clp2 = aqueduct.get_perpendicular_cut(p2,.0 )
     
     # Clips the ventricles system so that only cerebral aqueduct remains.
-    aqueduct.clip(clp1, invert=True ))
+    aqueduct.clip(clp1, invert=True )
     aqueduct.clip(clp2) 
 
      
     # Set the structure of the surfaces.
-    surfaces = [bounding_surface, lhpial, rhpial, white, ventricles, lhcp, rhcp, aqueduct]
+    surfaces = [bounding_surface, lh_pial, rh_pial, white, ventricles, lhcp, rhcp, aqueduct]
 
     # ----- Defining the SubdomainMap -----
     smap = svm.SubdomainMap(len(surfaces))  

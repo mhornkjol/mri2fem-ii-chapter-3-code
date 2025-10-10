@@ -1,7 +1,6 @@
+from mpi4py import MPI  
 import SVMTK as svm
 from pathlib import Path
-
-
     
 def repair_surface(surface, edge_length=1.0):
     # Keeps the largest connected component.
@@ -27,18 +26,19 @@ if __name__ == "__main__":
     outdir.mkdir(exist_ok=True)
     
     import argparse
-    import time 
+    import gc
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rhpial',         default="stl_files/rhpial.final.stl", type=str)
-    parser.add_argument('--lhpial',         default="stl_files/lhpial.final.stl", type=str)
-    parser.add_argument('--white',          default="stl_files/white.final.stl", type=str)    
-    parser.add_argument('--dura',           default="stl_files/dura.final.stl", type=str)
-    parser.add_argument('--ventricles',     default="stl_files/ventricles.final.stl", type=str)
-    parser.add_argument('--foramen_magnum', default="stl_files/foramen_magnum.stl", type=str)    
-    parser.add_argument('--rhchoroid',      default="stl_files/rh-choroid-plexus.stl", type=str)        
-    parser.add_argument('--lhchoroid',      default="stl_files/lh-choroid-plexus.stl", type=str)        
-    parser.add_argument('--resolution'    , default=84, type=float)
-
+    parser.add_argument('--rhpial',         default="../stl_files/rhpial.final.stl", type=str)
+    parser.add_argument('--lhpial',         default="../stl_files/lhpial.final.stl", type=str)
+    parser.add_argument('--white',          default="../stl_files/white.final.stl", type=str)    
+    parser.add_argument('--dura',           default="../stl_files/dura.final.stl", type=str)
+    parser.add_argument('--ventricles',     default="../stl_files/ventricles.final.stl", type=str)
+    parser.add_argument('--foramen_magnum', default="../stl_files/foramen-magnum.stl", type=str)    
+    parser.add_argument('--rhchoroid',      default="../stl_files/rhchoroid.plexus.final.stl", type=str)        
+    parser.add_argument('--lhchoroid',      default="../stl_files/lhchoroid.plexus.final.stl", type=str)        
+    parser.add_argument('--resolution'    , default=64, type=float)
+    
+    Z = parser.parse_args()
     white   = svm.Surface(Z.white) 
     lh_pial = svm.Surface(Z.lhpial)
     rh_pial = svm.Surface(Z.rhpial)
@@ -59,8 +59,8 @@ if __name__ == "__main__":
 
     bounding_surface.adjust_boundary(1.0)
     bounding_surface = repair_surface(bounding_surface,1.0)    
-
     # Clips the bounding and white surface.
+    foramen_magnum = svm.Surface(Z.foramen_magnum)
     bounding_surface.clip(foramen_magnum,True)
     white.clip(foramen_magnum,True)    
         
@@ -73,11 +73,11 @@ if __name__ == "__main__":
     clp2 = aqueduct.get_perpendicular_cut(p2,.0 )
    
     # Clips the ventricles system so that only cerebral aqueduct remains.
-    aqueduct.clip(clp1, invert=True ))
+    aqueduct.clip(clp1, invert=True )
     aqueduct.clip(clp2) 
      
     # Set the structure of the surfaces.
-    surfaces = [bounding_surface, lhpial, rhpial, white, ventricles, lhcp, rhcp, aqueduct]
+    surfaces = [bounding_surface, lh_pial, rh_pial, white, ventricles, lhcp, rhcp, aqueduct]
 
     # ----- Defining the SubdomainMap -----
     smap = svm.SubdomainMap(len(surfaces))  
@@ -103,24 +103,35 @@ if __name__ == "__main__":
     
     domain.create_mesh(Z.resolution)
     
+    domain.perturb()    
+    # Perform exude silvers 
+    domain.exude()
+    # Run surface segmentation on the interface (1,0) 
+    domain.boundary_segmentations((1, 0), 60)
+   
+    import numpy as np
     # Extract the mesh structure and tags
     points     = np.array(domain.get_points())
-    cells      = np.array(domain.get_cells())
-    cell_tags  = np.array(domain.get_cell_tags())
-    facets     = np.array(domain.get_facets())
-    facet_tags = np.array(domain.get_facet_tags())
+    cells      = np.array(domain.get_cells())-1
+    markers  = np.array(domain.get_cell_tags()).astype('int32')
+    facets     = np.array(domain.get_facets())-1
+    f_markers = np.array(domain.get_facet_tags()).astype('int32')
+
+    # Save the mesh as npz, which can be used to create a dolfinx mesh.
+    np.savez("gonzo.npz", points =points , cells=cells ,cell_tags =markers , facets =facets , facet_tags = f_markers )
 
     del domain
     # fenicsx dependencies 
-    from mpi4py import MPI  
     import dolfinx
     import basix.ufl
     import ufl
 
+    comm =  MPI.COMM_SELF
     c_l = ufl.Mesh(basix.ufl.element("Lagrange", "tetrahedron", 1, shape=(3,)))
-    mesh = dolfinx.mesh.create_mesh(  MPI.COMM_WORLD, cells, points, c_l)
-    
-    with dolfinx.io.XDMFFile(mesh.comm, str(outdir / "gonzo.xdmf"), "w")  as xdmf: 
+    partitioner = dolfinx.cpp.mesh.create_cell_partitioner(dolfinx.mesh.GhostMode.none)
+    mesh = dolfinx.mesh.create_mesh(comm, cells = cells, x = points, e=c_l, partitioner=partitioner) 
+ 
+    with dolfinx.io.XDMFFile(comm, str(outdir / "gonzo.xdmf"), "w")  as xdmf: 
          xdmf.write_mesh(mesh)
          
     print("Finish ", __file__)
