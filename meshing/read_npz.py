@@ -95,14 +95,18 @@ def read_from_svmtk_npz(
                 cells -= 1
             elif start_index != 0:
                 raise RuntimeError("Cells must start with 0 or 1")
-    return read_from_arrays(comm, cells, cell_tags, points, facets, facet_tags)
+    return read_from_arrays(comm, cells, cell_tags.astype('int32'), points, facets, facet_tags.astype('int32'))
 
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
-    infile = Path("shpere.npz")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--in', type=str)      
+    parser.add_argument('-o','--out', type=str) 
+    Z = parser.parse_args() 
+    infile = Path(Z.i)
     mesh, ct, ft = read_from_svmtk_npz(comm, infile)
-    with dolfinx.io.XDMFFile(mesh.comm, "test.xdmf", "w") as xdmf:
+    with dolfinx.io.XDMFFile(mesh.comm, Z.o, "w") as xdmf:
         xdmf.write_mesh(mesh)
         xdmf.write_meshtags(ct, mesh.geometry)
         xdmf.write_meshtags(ft, mesh.geometry)
