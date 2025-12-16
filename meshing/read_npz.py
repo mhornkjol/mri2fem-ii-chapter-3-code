@@ -100,6 +100,7 @@ def read_from_svmtk_npz(
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
+    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--in', type=str)      
     parser.add_argument('-o','--out', type=str) 
