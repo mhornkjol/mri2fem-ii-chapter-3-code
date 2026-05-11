@@ -9,6 +9,7 @@ import numpy as np
 
 outflow_marker = 333
 cp_marker = 5
+noslip_markers = 4
 
 
 def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
@@ -26,7 +27,6 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     W = dolfinx.fem.functionspace(mesh, taylor_hood)
 
     dx = ufl.Measure("dx", domain=mesh, subdomain_data=cell_tags)
-    noslip_markers = (7, 8, 9, 10, 11, 13, 14, 16)
     production_value = 0.5 / 24 * 1e6 / 3600.0  # L/day -> (mcm)^3 / s
     water_viscosity = dolfinx.default_scalar_type(0.697 * 10 ** (-3) * 10 ** (3))
 
@@ -324,9 +324,29 @@ if __name__ == "__main__":
     sub_cell_tags = dolfinx.mesh.meshtags(
         fluid_mesh, fluid_mesh.topology.dim, ct_indices, ct_values
     )
-    print(np.unique(sub_cell_tags.values), sub_cell_tags.name)
-    sub_cell_tags.name = sub_cell_tags.name
+    sub_cell_tags.name = "subdomains"
     sub_facet_tags.name = "interfaces"
+
+    # Noslip on all exterior facets of the submesh
+    fluid_mesh.topology.create_connectivity(fluid_mesh.topology.dim - 1, fluid_mesh.topology.dim)
+    exterior_facets = dolfinx.mesh.exterior_facet_indices(fluid_mesh.topology)
+    num_sub_facets = (
+        fluid_mesh.topology.index_map(fluid_mesh.topology.dim - 1).size_local
+        + fluid_mesh.topology.index_map(fluid_mesh.topology.dim - 1).num_ghosts
+    )
+    facet_values = np.zeros(num_sub_facets, dtype=np.int32)
+    facet_values[exterior_facets] = noslip_markers
+    facet_values[sub_facet_tags.indices] = sub_facet_tags.values
+    facet_indices = np.flatnonzero(facet_values).astype(np.int32)
+    facet_values = facet_values[facet_indices]
+    sub_facet_tags = dolfinx.mesh.meshtags(
+        fluid_mesh,
+        fluid_mesh.topology.dim - 1,
+        facet_indices,
+        facet_values,
+    )
+    sub_facet_tags.name = "interfaces"
+
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, rdir / "fluid_mesh.xdmf", "w") as xdmf:
         xdmf.write_mesh(fluid_mesh)
         fluid_mesh.topology.create_connectivity(
