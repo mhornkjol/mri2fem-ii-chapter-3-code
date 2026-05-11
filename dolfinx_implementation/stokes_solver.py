@@ -51,11 +51,10 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     no_slip.x.array[:] = 0
     bcs = []
     mesh.topology.create_connectivity(facet_tags.dim, mesh.topology.dim)
-    for marker in noslip_markers:
-        facets = facet_tags.find(marker)
-        fixed_dofs = dolfinx.fem.locate_dofs_topological((W.sub(0), V), facet_tags.dim, facets)
-        bc = dolfinx.fem.dirichletbc(no_slip, fixed_dofs, W.sub(0))
-        bcs.append(bc)
+    facets = facet_tags.find(noslip_markers)
+    fixed_dofs = dolfinx.fem.locate_dofs_topological((W.sub(0), V), facet_tags.dim, facets)
+    bc = dolfinx.fem.dirichletbc(no_slip, fixed_dofs, W.sub(0))
+    bcs.append(bc)
 
     # Create preconditioner
     P = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
