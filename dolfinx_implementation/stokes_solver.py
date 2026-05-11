@@ -7,64 +7,8 @@ import ufl
 import argparse
 import numpy as np
 
-
-cp_marker = 5
-noslip_markers = (7, 8, 9, 10, 11, 13, 14, 16)
 outflow_marker = 333
-production_value = 0.5 / 24 * 1e6 / 3600.0  # L/day -> (mcm)^3 / s
-water_viscosity = dolfinx.default_scalar_type(0.697 * 10 ** (-3) * 10 ** (3))
-
-
-def transfer_meshtags_to_submesh(
-    mesh, entity_tag, submesh, sub_vertex_to_parent, sub_cell_to_parent
-):
-    """
-    Transfer a meshtag from a parent mesh to a sub-mesh.
-    """
-
-    tdim = mesh.topology.dim
-    cell_imap = mesh.topology.index_map(tdim)
-    num_cells = cell_imap.size_local + cell_imap.num_ghosts
-    mesh_to_submesh = np.full(num_cells, -1)
-    mesh_to_submesh[sub_cell_to_parent] = np.arange(len(sub_cell_to_parent), dtype=np.int32)
-    sub_vertex_to_parent = np.asarray(sub_vertex_to_parent)
-
-    submesh.topology.create_connectivity(entity_tag.dim, 0)
-
-    num_child_entities = (
-        submesh.topology.index_map(entity_tag.dim).size_local
-        + submesh.topology.index_map(entity_tag.dim).num_ghosts
-    )
-    submesh.topology.create_connectivity(submesh.topology.dim, entity_tag.dim)
-
-    c_c_to_e = submesh.topology.connectivity(submesh.topology.dim, entity_tag.dim)
-    c_e_to_v = submesh.topology.connectivity(entity_tag.dim, 0)
-
-    child_markers = np.full(num_child_entities, np.iinfo(np.int32).max, dtype=np.int32)
-
-    mesh.topology.create_connectivity(entity_tag.dim, 0)
-    mesh.topology.create_connectivity(entity_tag.dim, mesh.topology.dim)
-    p_f_to_v = mesh.topology.connectivity(entity_tag.dim, 0)
-    p_f_to_c = mesh.topology.connectivity(entity_tag.dim, mesh.topology.dim)
-    for facet, value in zip(entity_tag.indices, entity_tag.values):
-        facet_found = False
-        for cell in p_f_to_c.links(facet):
-            if facet_found:
-                break
-            if (child_cell := mesh_to_submesh[cell]) != -1:
-                for child_facet in c_c_to_e.links(child_cell):
-                    child_vertices = c_e_to_v.links(child_facet)
-                    child_vertices_as_parent = sub_vertex_to_parent[child_vertices]
-                    is_facet = np.isin(child_vertices_as_parent, p_f_to_v.links(facet)).all()
-                    if is_facet:
-                        child_markers[child_facet] = value
-
-    child_marker_subset = np.flatnonzero(child_markers != np.iinfo(np.int32).max)
-    tags = dolfinx.mesh.meshtags(
-        submesh, entity_tag.dim, child_marker_subset, child_markers[child_marker_subset]
-    )
-    tags.name = entity_tag.name
-    return tags
+cp_marker = 5
 
 
 def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
@@ -82,6 +26,9 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
     W = dolfinx.fem.functionspace(mesh, taylor_hood)
 
     dx = ufl.Measure("dx", domain=mesh, subdomain_data=cell_tags)
+    noslip_markers = (7, 8, 9, 10, 11, 13, 14, 16)
+    production_value = 0.5 / 24 * 1e6 / 3600.0  # L/day -> (mcm)^3 / s
+    water_viscosity = dolfinx.default_scalar_type(0.697 * 10 ** (-3) * 10 ** (3))
 
     # Compute fluid source
     comm = mesh.comm
@@ -128,7 +75,9 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
         "ksp_rtol": 1e-6,
         # "ksp_view_eigenvalues": None
     }
-    problem = dolfinx.fem.petsc.LinearProblem(a, L, bcs=bcs, petsc_options=opts)
+    problem = dolfinx.fem.petsc.LinearProblem(
+        a, L, bcs=bcs, petsc_options=opts, petsc_options_prefix="stokes_"
+    )
     problem.solver.setOperators(problem.A, P)
     problem.solver.setComputeEigenvalues(True)
 
@@ -156,7 +105,10 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
         print(f"Fluid volume: {fluid_vol:.5e}", flush=True)
         print(f"Num cells: {mesh.topology.index_map(mesh.topology.dim).size_global}", flush=True)
         print(f"Num vertices: {mesh.topology.index_map(0).size_global}", flush=True)
-        print(f"Condition number: {np.max(np.abs(eigenvalues))/np.min(np.abs(eigenvalues)):.5e}", flush=True)
+        print(
+            f"Condition number: {np.max(np.abs(eigenvalues)) / np.min(np.abs(eigenvalues)):.5e}",
+            flush=True,
+        )
         print(
             f"Converged with: {problem.solver.getConvergedReason()} after {problem.solver.getIterationNumber()} iterations",
             flush=True,
@@ -164,110 +116,18 @@ def solve_stokes(mesh, cell_tags, facet_tags, results_dir: Path):
 
         u_dmap = uh.function_space.dofmap
         print(
-            f"Number of dofs in velocity space: {u_dmap.index_map.size_global*u_dmap.index_map_bs}",
+            f"Number of dofs in velocity space: {u_dmap.index_map.size_global * u_dmap.index_map_bs}",
             flush=True,
         )
         p_dmap = ph.function_space.dofmap
         print(
-            f"Number of dofs in pressure space: {p_dmap.index_map.size_global*p_dmap.index_map_bs}",
+            f"Number of dofs in pressure space: {p_dmap.index_map.size_global * p_dmap.index_map_bs}",
             flush=True,
         )
 
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, results_dir / "velocity.bp", [uh]) as bp:
         bp.write(0.0)
     with dolfinx.io.VTXWriter(MPI.COMM_WORLD, results_dir / "pressure.bp", [ph]) as bp:
-        bp.write(0.0)
-
-
-def solve_stokes_whole_mesh(mesh, domain_marker, facet_tags, fluid_markers, results_dir):
-    P2 = element("Lagrange", mesh.basix_cell(), 2, shape=(mesh.geometry.dim,))
-    P1 = element("Lagrange", mesh.basix_cell(), 1)
-    taylor_hood = mixed_element([P2, P1])
-    W = dolfinx.fem.functionspace(mesh, taylor_hood)
-
-    (u, p) = ufl.TrialFunctions(W)
-    (v, q) = ufl.TestFunctions(W)
-
-    V, _ = W.sub(0).collapse()
-    no_slip = dolfinx.fem.Function(V)
-    no_slip.x.array[:] = 0.0
-
-    bcs = []
-    for marker in noslip_markers:
-        mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
-        fixed_dofs = dolfinx.fem.locate_dofs_topological(
-            (W.sub(0), V), mesh.topology.dim - 1, facet_tags.find(marker)
-        )
-        bc = dolfinx.fem.dirichletbc(no_slip, fixed_dofs, W.sub(0))
-        bcs.append(bc)
-
-    dmap = W.dofmap
-    all_local_dofs = np.full(
-        (dmap.index_map.size_local + dmap.index_map.num_ghosts) * dmap.index_map_bs,
-        1,
-        dtype=np.int8,
-    )
-    mesh.topology.create_connectivity(mesh.topology.dim, mesh.topology.dim)
-    for marker in fluid_markers:
-        all_local_dofs[
-            dolfinx.fem.locate_dofs_topological(W, mesh.topology.dim, domain_marker.find(marker))
-        ] = 0
-    z = dolfinx.fem.Function(W)
-    deactivate_dofs = np.flatnonzero(all_local_dofs).astype(np.int32)
-    bc_deac = dolfinx.fem.dirichletbc(z, deactivate_dofs)
-    bcs.append(bc_deac)
-
-    dx = ufl.Measure("dx", domain=mesh, subdomain_data=domain_marker)
-    dxF = dx(fluid_markers)
-
-    choroid_plexus_volume = dolfinx.fem.form(1 * dx(cp_marker))
-    vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(choroid_plexus_volume), op=MPI.SUM)
-    g_source = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(production_value / vol))
-    mu = dolfinx.fem.Constant(mesh, water_viscosity)
-
-    z_ = dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0))
-    zero_mass = z_ * ufl.inner(u, v) * dx + z_ * ufl.inner(p, q) * dx
-    a = (
-        mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dxF
-        - ufl.div(v) * p * dxF
-        - q * ufl.div(u) * dxF
-        + zero_mass
-    )
-    p = mu * ufl.inner(ufl.grad(u), ufl.grad(v)) * dxF + (1.0 / mu) * p * q * dxF + zero_mass
-    P = dolfinx.fem.petsc.assemble_matrix(dolfinx.fem.form(p), bcs=bcs)
-    P.assemble()
-    L = -g_source * q * dx(6)
-
-    problem = dolfinx.fem.petsc.LinearProblem(
-        a,
-        L,
-        bcs=bcs,
-        petsc_options={
-            # "ksp_type": "preonly",
-            # "pc_type": "lu",
-            # "pc_factor_mat_solver_type": "mumps",
-            "ksp_type": "minres",
-            "pc_type": "hypre",
-            "pc_hypre_type": "boomeramg",
-            "ksp_monitor": None,
-            "ksp_error_if_not_converged": True,
-        },
-    )
-
-    problem.solver.setOperators(problem.A, P)
-
-    wh = problem.solve()
-    print(f"Converged with: {problem.solver.getConvergedReason()}")
-    problem.solver.view()
-
-    uh = wh.sub(0).collapse()
-    uh.x.scatter_forward()
-    ph = wh.sub(1).collapse()
-    ph.x.scatter_forward()
-
-    with dolfinx.io.VTXWriter(MPI.COMM_WORLD, results_dir / "velocity_whole.bp", [uh]) as bp:
-        bp.write(0.0)
-    with dolfinx.io.VTXWriter(MPI.COMM_WORLD, results_dir / "pressure_whole.bp", [ph]) as bp:
         bp.write(0.0)
 
 
@@ -326,12 +186,11 @@ def extend_facet_marker_with_outlet(
     return new_tag
 
 
-def read_mesh(infile: Path,
-              facet_infile: Path,
-              grid_name: str,
-              cell_tags_name: str = "mesh_tags",
-              facet_tags_name: str = "mesh_tags") -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags,
-                                                           dolfinx.mesh.MeshTags]:
+def read_mesh(
+    infile: Path,
+    grid_name: str,
+    cell_tags_name: str = "mesh_tags",
+) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags, dolfinx.mesh.MeshTags]:
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, infile, "r") as xdmf:
         domain = xdmf.read_mesh(name=grid_name)
         try:
@@ -339,32 +198,53 @@ def read_mesh(infile: Path,
         except RuntimeError:
             ct = xdmf.read_meshtags(domain, name=cell_tags_name)
 
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, facet_infile, "r") as xdmf:
-        domain.topology.create_connectivity(domain.topology.dim - 1, domain.topology.dim)
-        try:
-            ft = xdmf.read_meshtags(domain, name=grid_name)
-        except RuntimeError:
-            ft = xdmf.read_meshtags(domain, name=facet_tags_name)
-    return domain, ct, ft
+    return domain, ct
 
 
 def add_outlet_to_facets(
     infile: Path,
-    facet_infile: Path,
     grid_name: str,
-    x_bounds: tuple[float, float] = (-28, 4),
-    y_bounds: tuple[float] = (-100, 11),
-    z_bound: float = 40,
+    x_bounds: tuple[float, float] = (-77, 68),
+    y_bounds: tuple[float] = (-103, 62),
+    z_bound: float = 78,
     cell_tags_name: str = "mesh_tags",
-    facet_tags_name: str = "mesh_tags"
+    facet_tags_name: str = "mesh_tags",
+    void_markers: tuple[int, ...] | None = None,
 ) -> tuple[dolfinx.mesh.Mesh, dolfinx.mesh.MeshTags, dolfinx.mesh.MeshTags]:
     """
     Add outlet tags in a given area and remove all facets marked with 0.
 
     """
-    domain, ct, ft = read_mesh(infile, facet_infile, grid_name, cell_tags_name, facet_tags_name)
-    new_tag = extend_facet_marker_with_outlet(domain, ft, x_bounds, y_bounds, z_bound)
-    return domain, ct, new_tag
+    mesh, ct = read_mesh(infile, grid_name, cell_tags_name)
+    if void_markers is not None:
+        num_cells_local = (
+            mesh.topology.index_map(mesh.topology.dim).size_local
+            + mesh.topology.index_map(mesh.topology.dim).num_ghosts
+        )
+        void_cells = ct.indices[np.isin(ct.values, void_markers)]
+        keep_cells = np.full(num_cells_local, 1, dtype=np.int32)
+        keep_cells[void_cells] = 0
+        keep_cells = np.flatnonzero(keep_cells).astype(np.int32)
+        submesh, cell_map, vertex_map, node_map = dolfinx.mesh.create_submesh(
+            mesh, mesh.topology.dim, keep_cells
+        )
+        ct = dolfinx.mesh.transfer_meshtags_to_submesh(ct, submesh, vertex_map, cell_map)
+        mesh = submesh
+
+    mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
+    num_facets = (
+        mesh.topology.index_map(mesh.topology.dim - 1).size_local
+        + mesh.topology.index_map(mesh.topology.dim - 1).num_ghosts
+    )
+    ft = dolfinx.mesh.meshtags(
+        mesh,
+        mesh.topology.dim - 1,
+        np.arange(num_facets, dtype=np.int32),
+        np.zeros(num_facets, dtype=np.int32),
+    )
+    new_tag = extend_facet_marker_with_outlet(mesh, ft, x_bounds, y_bounds, z_bound)
+
+    return mesh, ct, new_tag
 
 
 if __name__ == "__main__":
@@ -372,14 +252,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mesh-file", type=Path, dest="infile", help="Path to input mesh file", required=True
     )
-    parser.add_argument(
-        "--facet-file",
-        type=Path,
-        dest="facet_infile",
-        help="Path to input facet file",
-        required=True,
-    )
-    parser.add_argument("--whole", action="store_true", dest="whole", default=False)
     parser.add_argument(
         "--grid-name",
         type=str,
@@ -394,13 +266,6 @@ if __name__ == "__main__":
         default="mesh_tags",
         help="Name of cell markers in XDMF",
     )
-    parser.add_argument(
-        "--facet-tag",
-        type=str,
-        dest="facet_name",
-        default="mesh_tags",
-        help="Name of facet markers in XDMF",
-    )
 
     parser.add_argument(
         "--results-dir",
@@ -409,43 +274,65 @@ if __name__ == "__main__":
         default="results",
         help="Path to folder where results are stored",
     )
-    parser.add_argument("--add-outlets", dest="add_outlet", action="store_true", default=False, help="Add outlet markers to mesh")
+
     args = parser.parse_args()
 
-    fluid_markers = (1, 4, 5, 6)
-    solid_markers = (2, 3)
+    fluid_markers = (4, 6)
+    solid_markers = (2, 3, 5)
+    void_markers = (1,)
     rdir = args.rdir
-    if args.add_outlet:
-        domain, ct, new_tag = add_outlet_to_facets(args.infile, args.facet_infile, args.grid_name,
-                                                cell_tags_name=args.cell_name,
-                                                facet_tags_name=args.facet_name)
-    else:
-        domain, ct, new_tag = read_mesh(args.infile, args.facet_infile, args.grid_name, args.cell_name, args.facet_name)
+    domain, ct, new_tag = add_outlet_to_facets(
+        args.infile,
+        args.grid_name,
+        cell_tags_name=args.cell_name,
+        void_markers=void_markers,
+    )
 
-    if args.whole:
-        solve_stokes_whole_mesh(domain, ct, new_tag, fluid_markers, rdir)
-    else:
-        # Extract sub mesh for fluids
-        fluid_cells = ct.indices[np.isin(ct.values, fluid_markers)]
-        fluid_mesh, cell_to_full, vertex_to_full, node_to_full = dolfinx.mesh.create_submesh(
-            domain, domain.topology.dim, fluid_cells
+    # Extract sub mesh for fluids
+    fluid_cells = ct.indices[np.isin(ct.values, fluid_markers)]
+    fluid_mesh, cell_to_full, vertex_to_full, node_to_full = dolfinx.mesh.create_submesh(
+        domain, domain.topology.dim, fluid_cells
+    )
+    sub_cell_tags = dolfinx.mesh.transfer_meshtags_to_submesh(
+        ct, fluid_mesh, vertex_to_full, cell_to_full
+    )
+    sub_cell_tags.name = "subdomains"
+    sub_facet_tags = dolfinx.mesh.transfer_meshtags_to_submesh(
+        new_tag, fluid_mesh, vertex_to_full, cell_to_full
+    )
+
+    # Create an approximate choroid plexus
+    def locator_1(x):
+        return (
+            (x[0] > -40) & (x[0] < -10) & (x[1] > -40) & (x[1] < -25) & (x[2] > -20) & (x[2] < 20)
         )
 
-        sub_cell_tags = transfer_meshtags_to_submesh(
-            domain, ct, fluid_mesh, vertex_to_full, cell_to_full
-        )
-        sub_cell_tags.name = "subdomains"
-        sub_facet_tags = transfer_meshtags_to_submesh(
-            domain, new_tag, fluid_mesh, vertex_to_full, cell_to_full
-        )
-        sub_facet_tags.name = "interfaces"
-        with dolfinx.io.XDMFFile(MPI.COMM_WORLD, rdir / "fluid_mesh.xdmf", "w") as xdmf:
-            xdmf.write_mesh(fluid_mesh)
-            fluid_mesh.topology.create_connectivity(
-                fluid_mesh.topology.dim - 1, fluid_mesh.topology.dim
-            )
-            xdmf.write_meshtags(sub_cell_tags, fluid_mesh.geometry)
-            xdmf.write_meshtags(sub_facet_tags, fluid_mesh.geometry)
-        del domain, ct, new_tag
+    def locator_2(x):
+        return (x[0] > 10) & (x[0] < 30) & (x[1] > -40) & (x[1] < -20) & (x[2] > -20) & (x[2] < 30)
 
-        solve_stokes(fluid_mesh, sub_cell_tags, sub_facet_tags, rdir)
+    choroid_plexus_cells1 = dolfinx.mesh.locate_entities(
+        fluid_mesh, fluid_mesh.topology.dim, locator_1
+    )
+    choroid_plexus_cells2 = dolfinx.mesh.locate_entities(
+        fluid_mesh, fluid_mesh.topology.dim, locator_2
+    )
+    choroid_plexus_cells = np.union1d(choroid_plexus_cells1, choroid_plexus_cells2)
+    actual_cells = np.intersect1d(sub_cell_tags.find(4), choroid_plexus_cells)
+    ct_values = sub_cell_tags.values.copy()
+    ct_indices = sub_cell_tags.indices.copy()
+    ct_values[actual_cells] = cp_marker
+    sub_cell_tags = dolfinx.mesh.meshtags(
+        fluid_mesh, fluid_mesh.topology.dim, ct_indices, ct_values
+    )
+    print(np.unique(sub_cell_tags.values), sub_cell_tags.name)
+    sub_cell_tags.name = sub_cell_tags.name
+    sub_facet_tags.name = "interfaces"
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, rdir / "fluid_mesh.xdmf", "w") as xdmf:
+        xdmf.write_mesh(fluid_mesh)
+        fluid_mesh.topology.create_connectivity(
+            fluid_mesh.topology.dim - 1, fluid_mesh.topology.dim
+        )
+        xdmf.write_meshtags(sub_cell_tags, fluid_mesh.geometry)
+        xdmf.write_meshtags(sub_facet_tags, fluid_mesh.geometry)
+    del domain, ct, new_tag
+    solve_stokes(fluid_mesh, sub_cell_tags, sub_facet_tags, rdir)
